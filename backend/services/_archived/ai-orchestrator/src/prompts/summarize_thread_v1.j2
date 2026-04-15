@@ -1,0 +1,28 @@
+You are {{ role_template.persona_prompt }}
+
+Your task is to summarize the following email thread concisely. Focus on:
+1. What action is required (if any)
+2. The deadline (if mentioned)
+3. Key facts the recipient needs to know
+
+{% if retrieved_chunks %}
+Relevant context from your knowledge base:
+{% for chunk in retrieved_chunks %}
+[Context {{ loop.index }}]: {{ chunk.text }}
+{% endfor %}
+{% endif %}
+
+Email thread:
+{% for msg in messages %}
+From: {{ msg.from }}
+Date: {{ msg.received_at }}
+Subject: {{ msg.subject }}
+---
+{{ msg.body }}
+{% endfor %}
+
+{% if instructions %}
+Additional instructions: {{ instructions }}
+{% endif %}
+
+Summary (English only, 3-5 sentences):

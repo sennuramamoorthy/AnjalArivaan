@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply antialiased;
+  }
+
+  /* Custom scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+
+  .dark * {
+    scrollbar-color: #374151 transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #d1d5db;
+    border-radius: 9999px;
+  }
+
+  .dark *::-webkit-scrollbar-thumb {
+    background-color: #374151;
+  }
+
+  /* Focus ring default */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+  }
+
+  /* Prose overrides for email body content */
+  .prose {
+    @apply text-gray-800;
+    max-width: none;
+  }
+
+  .dark .prose {
+    @apply text-gray-200;
+  }
+
+  .prose a {
+    @apply text-primary-600;
+  }
+
+  .dark .prose a {
+    color: #818cf8;
+  }
+
+  .prose strong {
+    @apply text-gray-900;
+  }
+
+  .dark .prose strong {
+    @apply text-gray-100;
+  }
+}
+
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}

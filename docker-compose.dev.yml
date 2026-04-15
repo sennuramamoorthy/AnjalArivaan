@@ -1,0 +1,135 @@
+# docker-compose.dev.yml
+#
+# Dev overlay — adds application services (UI + backend) to the infra stack.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Or with the shorthand (requires COMPOSE_FILE in .env):
+#   docker compose up -d
+#
+# All application services mount source code as volumes for hot-reload.
+# They connect to the infra services (postgres, redis, etc.) via
+# the shared anjal_network defined in docker-compose.yml.
+#
+# Node.js services use a shared Docker volume for node_modules so that
+# native binaries (esbuild, bcrypt, etc.) are compiled for the container's
+# Linux platform rather than the macOS host.
+
+services:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  #  DB Migration (runs once, then exits)
+  # ────────────────────────────────────────────────────────────────────────────
+  db-migrate:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      DATABASE_URL: postgresql://anjal:anjal_dev_password@postgres:5432/anjalarivaan
+    command: >
+      sh -c "apt-get update -y && apt-get install -y openssl &&
+             corepack enable &&
+             corepack prepare pnpm@9 --activate &&
+             pnpm install --frozen-lockfile &&
+             pnpm --filter @anjal/db migrate:deploy &&
+             pnpm --filter @anjal/db generate &&
+             pnpm --filter @anjal/db seed"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [anjal_network]
+    restart: "no"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  #  PWA Frontend (Next.js 14 — hot reload)
+  # ────────────────────────────────────────────────────────────────────────────
+  pwa:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    ports:
+      - "${PWA_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-4001}
+    command: >
+      sh -c "corepack enable &&
+             corepack prepare pnpm@9 --activate &&
+             pnpm install --frozen-lockfile &&
+             pnpm --filter @anjal/pwa dev"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/login', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks: [anjal_network]
+
+  # ────────────────────────────────────────────────────────────────────────────
+  #  API — Consolidated Python/FastAPI backend (uvicorn — hot reload)
+  # ────────────────────────────────────────────────────────────────────────────
+  api:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./backend/api:/app
+    ports:
+      - "${API_PORT:-4001}:4001"
+    environment:
+      PYTHONPATH: /app
+      PORT: "4001"
+      DATABASE_URL: postgresql://anjal:anjal_dev_password@postgres:5432/anjalarivaan
+      REDIS_URL: redis://:anjal_redis_dev@redis:6379
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-anjal-vault-dev-root}
+      MINIO_ENDPOINT: minio:9000
+      QDRANT_URL: http://qdrant:6333
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://host.docker.internal:8000}
+      JWT_PRIVATE_KEY_PATH: ./keys/jwt_private.pem
+      JWT_PUBLIC_KEY_PATH: ./keys/jwt_public.pem
+      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-900}
+      JWT_REFRESH_TOKEN_TTL: ${JWT_REFRESH_TOKEN_TTL:-604800}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      MFA_ENABLED: ${MFA_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      BSP_API_KEY: ${BSP_API_KEY:-}
+      BSP_WHATSAPP_NUMBER: ${BSP_WHATSAPP_NUMBER:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/oauth/callback}
+      GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:-takshashilauniv.ac.in}
+    command: >
+      sh -c "pip install --no-cache-dir -e '.[dev]' &&
+             uvicorn src.app:create_app --factory --host 0.0.0.0 --port 4001 --reload"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_started
+      db-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4001/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks: [anjal_network]
+
+# Shared Docker volume for node_modules — ensures native binaries (esbuild,
+# bcrypt, etc.) are compiled for the container's Linux platform, not the
+# macOS host. All Node.js services share this volume since they all use the
+# same pnpm workspace with hoisted dependencies.
+volumes:
+  node_modules:

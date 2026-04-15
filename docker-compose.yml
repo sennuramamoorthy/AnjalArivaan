@@ -1,0 +1,82 @@
+version: '3.9'
+
+networks:
+  anjal_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  opensearch_data:
+  qdrant_data:
+  minio_data:
+  vault_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-anjal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-anjal_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-anjalarivaan}
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-anjal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [anjal_network]
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-anjal_redis_dev}
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD:-anjal_redis_dev}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [anjal_network]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.14.0
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-Anjal@Dev2026!}
+      - plugins.security.disabled=true
+    ports: ["9200:9200"]
+    volumes: [opensearch_data:/usr/share/opensearch/data]
+    networks: [anjal_network]
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.3
+    ports: ["6333:6333", "6334:6334"]
+    volumes: [qdrant_data:/qdrant/storage]
+    networks: [anjal_network]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-anjal_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-anjal_minio_dev_password}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio_data:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks: [anjal_network]
+
+  vault:
+    image: hashicorp/vault:1.16
+    cap_add: [IPC_LOCK]
+    command: server -dev -dev-root-token-id=${VAULT_DEV_ROOT_TOKEN:-anjal-vault-dev-root}
+    environment:
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports: ["8200:8200"]
+    volumes: [vault_data:/vault/data]
+    networks: [anjal_network]

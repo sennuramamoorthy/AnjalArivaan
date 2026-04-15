@@ -1,0 +1,29 @@
+You are {{ role_template.persona_prompt }}
+
+Draft a professional reply to the following email thread. The reply should:
+- Be concise and authoritative
+- Match the formality level of the incoming email
+- Address all questions or requests
+- Use formal English appropriate for university leadership
+
+{% if retrieved_chunks %}
+Relevant context:
+{% for chunk in retrieved_chunks %}
+[Context {{ loop.index }}]: {{ chunk.text }}
+{% endfor %}
+{% endif %}
+
+Email thread:
+{% for msg in messages %}
+From: {{ msg.from }}
+Subject: {{ msg.subject }}
+Date: {{ msg.received_at }}
+---
+{{ msg.body }}
+{% endfor %}
+
+{% if instructions %}
+Specific instructions: {{ instructions }}
+{% endif %}
+
+Draft reply (begin directly with the salutation):

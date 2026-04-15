@@ -1,0 +1,12 @@
+node_modules
+dist
+.next
+*.pem
+.env
+!.env.example
+
+# pnpm
+.pnpm-store/
+
+# Local artifacts
+*.docx

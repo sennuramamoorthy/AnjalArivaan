@@ -1,0 +1,438 @@
+// This is the Prisma schema for AnjalArivaan.
+// All IDs are UUID strings. Sensitive fields are marked // ENCRYPTED.
+// Table names use snake_case via @@map().
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  DEPT_ADMIN
+  VC
+  REGISTRAR
+  DEAN
+  HOD
+  STAFF
+}
+
+enum LinkedAccountStatus {
+  ACTIVE
+  REVOKED
+  SYNC_ERROR
+}
+
+enum UrgencyLevel {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum ResourceType {
+  CONFERENCE_ROOM
+  CLASSROOM
+  LAB
+  EQUIPMENT
+  VEHICLE
+  GUESTHOUSE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  OVERDUE
+  CANCELLED
+}
+
+enum TravelPlanStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model AppUser {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  // ENCRYPTED
+  passwordHash String     @map("password_hash")
+  // ENCRYPTED
+  mfaSecret    String?    @map("mfa_secret")
+  mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
+  // ENCRYPTED
+  phone        String?
+  role         UserRole   @default(STAFF)
+  status       UserStatus @default(PENDING_VERIFICATION)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  linkedAccounts LinkedAccount[]
+  employee       Employee?
+
+  @@map("app_users")
+}
+
+model LinkedAccount {
+  id               String              @id @default(uuid())
+  appUserId        String              @map("app_user_id")
+  googleEmail      String              @map("google_email")
+  workspaceDomain  String              @map("workspace_domain")
+  scopes           String[]
+  // Vault path — never the raw token
+  vaultRef         String              @map("vault_ref")
+  status           LinkedAccountStatus @default(ACTIVE)
+  lastSyncAt       DateTime?           @map("last_sync_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  appUser      AppUser        @relation(fields: [appUserId], references: [id], onDelete: Cascade)
+  mailMessages MailMessage[]
+  contacts     Contact[]
+  signatures   Signature[]
+  ooos         OOO[]
+
+  @@unique([appUserId, googleEmail])
+  @@map("linked_accounts")
+}
+
+model Employee {
+  id          String    @id @default(uuid())
+  name        String
+  designation String
+  department  String
+  reportingToId String? @map("reporting_to_id")
+  level       Int       @default(1)
+  activeFrom  DateTime  @map("active_from")
+  activeTo    DateTime? @map("active_to")
+  appUserId   String?   @unique @map("app_user_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  appUser     AppUser?   @relation(fields: [appUserId], references: [id], onDelete: SetNull)
+  reportingTo Employee?  @relation("ReportingHierarchy", fields: [reportingToId], references: [id])
+  directReports Employee[] @relation("ReportingHierarchy")
+
+  @@map("employees")
+}
+
+model RoleTemplate {
+  id               String   @id @default(uuid())
+  designation      String   @unique
+  personaPrompt    String   @map("persona_prompt")
+  kpis             String[]
+  urgencyRulesRef  String   @map("urgency_rules_ref")
+  briefingSchedule String   @map("briefing_schedule")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("role_templates")
+}
+
+model MailMessage {
+  id            String       @id @default(uuid())
+  accountId     String       @map("account_id")
+  gmailMsgId    String       @map("gmail_msg_id")
+  threadId      String       @map("thread_id")
+  fromAddress   String       @map("from_address")
+  toAddresses   String[]     @map("to_addresses")
+  ccAddresses   String[]     @map("cc_addresses")
+  // ENCRYPTED
+  subject       String
+  // ENCRYPTED
+  bodyText      String?      @map("body_text")
+  // ENCRYPTED
+  bodyHtml      String?      @map("body_html")
+  receivedAt    DateTime     @map("received_at")
+  labels        String[]
+  hasAttachment Boolean      @default(false) @map("has_attachment")
+  urgencyLevel  UrgencyLevel @default(NONE) @map("urgency_level")
+  urgencyScore  Float?       @map("urgency_score")
+  isRead        Boolean      @default(false) @map("is_read")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  account     LinkedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+  tasks       Task[]
+
+  @@unique([accountId, gmailMsgId])
+  @@map("mail_messages")
+}
+
+model Attachment {
+  id               String   @id @default(uuid())
+  mailId           String   @map("mail_id")
+  filename         String
+  mimeType         String   @map("mime_type")
+  sizeBytes        Int      @map("size_bytes")
+  minioKey         String   @map("minio_key")
+  // ENCRYPTED — MinIO key for extracted text
+  extractedTextRef String?  @map("extracted_text_ref")
+  ocrLang          String?  @map("ocr_lang")
+  // ENCRYPTED — MinIO key for AV transcript
+  avTranscriptRef  String?  @map("av_transcript_ref")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  mail MailMessage @relation(fields: [mailId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+model UrgencyRule {
+  id              String   @id @default(uuid())
+  role            UserRole
+  senderPatterns  String[] @map("sender_patterns")
+  keywordPatterns String[] @map("keyword_patterns")
+  deadlineRegex   String?  @map("deadline_regex")
+  actionTemplate  String   @map("action_template")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("urgency_rules")
+}
+
+model NotificationEvent {
+  id              String              @id @default(uuid())
+  userId          String              @map("user_id")
+  channel         NotificationChannel
+  templateId      String              @map("template_id")
+  payload         Json
+  status          NotificationStatus  @default(PENDING)
+  deliveryReceipt String?             @map("delivery_receipt")
+  sentAt          DateTime?           @map("sent_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  @@map("notification_events")
+}
+
+model Resource {
+  id              String       @id @default(uuid())
+  type            ResourceType
+  name            String
+  capacity        Int?
+  location        String
+  features        String[]
+  approvalRequired Boolean     @default(false) @map("approval_required")
+  approvers       String[]
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  meetingResources MeetingResource[]
+
+  @@map("resources")
+}
+
+model Meeting {
+  id             String         @id @default(uuid())
+  organizer      String
+  startAt        DateTime       @map("start_at")
+  endAt          DateTime       @map("end_at")
+  gcalEventId    String?        @map("gcal_event_id")
+  agendaRef      String?        @map("agenda_ref")
+  approvalStatus ApprovalStatus @default(PENDING) @map("approval_status")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  attendees MeetingAttendee[]
+  resources MeetingResource[]
+
+  @@map("meetings")
+}
+
+model MeetingAttendee {
+  meetingId String @map("meeting_id")
+  userId    String @map("user_id")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, userId])
+  @@map("meeting_attendees")
+}
+
+model MeetingResource {
+  meetingId  String @map("meeting_id")
+  resourceId String @map("resource_id")
+
+  meeting  Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, resourceId])
+  @@map("meeting_resources")
+}
+
+model TimetableSlot {
+  id          String   @id @default(uuid())
+  resourceId  String   @map("resource_id")
+  title       String
+  startsAt    DateTime @map("starts_at")
+  endsAt      DateTime @map("ends_at")
+  recurring   Boolean  @default(false)
+  rrule       String?
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("timetable_slots")
+}
+
+model Task {
+  id           String     @id @default(uuid())
+  assignerId   String     @map("assigner_id")
+  assigneeId   String     @map("assignee_id")
+  subject      String
+  description  String?
+  dueAt        DateTime?  @map("due_at")
+  status       TaskStatus @default(OPEN)
+  sourceMailId String?    @map("source_mail_id")
+  replyToken   String?    @unique @map("reply_token")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  sourceMail MailMessage? @relation(fields: [sourceMailId], references: [id], onDelete: SetNull)
+
+  @@map("tasks")
+}
+
+model TravelPlan {
+  id            String           @id @default(uuid())
+  travellerId   String           @map("traveller_id")
+  // Stored as JSON array of TravelLeg objects
+  itinerary     Json
+  advanceAmount Decimal?         @map("advance_amount") @db.Decimal(12, 2)
+  approvalChain String[]         @map("approval_chain")
+  status        TravelPlanStatus @default(DRAFT)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  @@map("travel_plans")
+}
+
+model Contact {
+  id             String   @id @default(uuid())
+  accountId      String   @map("account_id")
+  name           String
+  emails         String[]
+  // ENCRYPTED
+  phones         String[]
+  organization   String?
+  tags           String[]
+  gmailContactId String?  @map("gmail_contact_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  account LinkedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, gmailContactId])
+  @@map("contacts")
+}
+
+model Signature {
+  id           String   @id @default(uuid())
+  accountId    String   @map("account_id")
+  name         String
+  htmlTemplate String   @map("html_template")
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  account LinkedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("signatures")
+}
+
+model OOO {
+  id          String   @id @default(uuid())
+  accountId   String   @map("account_id")
+  message     String
+  activeFrom  DateTime @map("active_from")
+  activeTo    DateTime @map("active_to")
+  delegateId  String?  @map("delegate_id")
+  gcalSynced  Boolean  @default(false) @map("gcal_synced")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  account LinkedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("ooos")
+}
+
+// Append-only — no updatedAt
+model AuditEvent {
+  id                   String   @id @default(uuid())
+  actor                String
+  action               String
+  target               String
+  before               Json?
+  after                Json?
+  generatedContentHash String?  @map("generated_content_hash")
+  ipAddress            String?  @map("ip_address")
+  userAgent            String?  @map("user_agent")
+  ts                   DateTime @default(now())
+
+  @@map("audit_events")
+}
+
+model ConsentRecord {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  purpose   String
+  scope     String
+  grantedAt DateTime  @default(now()) @map("granted_at")
+  revokedAt DateTime? @map("revoked_at")
+  proof     String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("consent_records")
+}
+
+model EventOutbox {
+  id          String    @id @default(uuid())
+  eventType   String    @map("event_type")
+  topic       String
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@map("event_outbox")
+}

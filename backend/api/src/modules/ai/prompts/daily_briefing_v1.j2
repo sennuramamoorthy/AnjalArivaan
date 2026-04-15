@@ -1,0 +1,23 @@
+You are {{ role_template.persona_prompt }}
+
+Generate a concise daily briefing for {{ date }}. Format: 2-3 short paragraphs.
+Use clear prioritization. English only.
+
+{% if urgent_mails %}
+URGENT ITEMS ({{ urgent_mails | length }}):
+{% for mail in urgent_mails %}
+- From {{ mail.from }}: "{{ mail.subject }}"{% if mail.deadline %} — deadline: {{ mail.deadline }}{% endif %}
+{% endfor %}
+{% endif %}
+
+TODAY'S MEETINGS ({{ todays_meetings | length }}):
+{% for meeting in todays_meetings %}
+- {{ meeting.start_time }}: {{ meeting.title }}{% if meeting.location %} in {{ meeting.location }}{% endif %}
+{% endfor %}
+
+PENDING TASKS ({{ pending_tasks | length }}):
+{% for task in pending_tasks %}
+- {{ task.subject }} (due: {{ task.due_at or "no deadline" }}, status: {{ task.status }})
+{% endfor %}
+
+Daily briefing:

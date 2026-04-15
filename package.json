@@ -1,0 +1,32 @@
+{
+  "name": "anjalarivaan",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm -r --filter './backend/packages/**' --filter './backend/services/**' test:unit",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate": "pnpm --filter @anjal/db migrate:dev",
+    "db:generate": "pnpm --filter @anjal/db generate"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "prettier": "^3.2.5",
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma",
+      "bcrypt",
+      "unrs-resolver"
+    ]
+  }
+}
