@@ -9,6 +9,7 @@ class IGmailAdapter(ABC):
         access_token: str,
         max_results: int = 50,
         page_token: str | None = None,
+        include_spam_trash: bool = True,
     ) -> dict[str, Any]: ...
 
     @abstractmethod

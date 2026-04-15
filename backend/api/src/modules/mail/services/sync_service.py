@@ -73,28 +73,58 @@ class MailSyncService:
             log.error("sync_account.vault_error", error=exc)
             return 0
 
-        with log.timed("gmail.list_messages", account_id=account_id):
-            response = await self._gmail.list_messages(access_token)
-
-        raw_msgs = response.get("messages", [])
-        if not raw_msgs:
-            log.info("sync_account.no_messages")
-            return 0
+        # Paginate through the Gmail message list so folders like Sent /
+        # Important / Trash get populated even on busy accounts — the first
+        # 50 results are almost always dominated by Inbox. Cap total pulled
+        # messages so the initial sync doesn't run unbounded for very large
+        # mailboxes; later incremental syncs pick up anything missed.
+        MAX_INITIAL_MESSAGES = 500
+        PAGE_SIZE = 100
 
         synced_count = 0
-        for msg_ref in raw_msgs:
-            gmail_msg_id = msg_ref["id"]
-            result = await self.sync_message(
-                account_id=account_id,
-                user_id=user_id,
-                gmail_msg_id=gmail_msg_id,
-                trace_id=trace_id,
-                access_token=access_token,
-            )
-            if result is not None:
-                synced_count += 1
+        page_token: str | None = None
+        seen_msg_ids: set[str] = set()
 
-        log.info("sync_account.complete", synced_count=synced_count)
+        while len(seen_msg_ids) < MAX_INITIAL_MESSAGES:
+            with log.timed("gmail.list_messages", account_id=account_id):
+                response = await self._gmail.list_messages(
+                    access_token,
+                    max_results=PAGE_SIZE,
+                    page_token=page_token,
+                    include_spam_trash=True,
+                )
+
+            raw_msgs = response.get("messages", []) or []
+            if not raw_msgs and not seen_msg_ids:
+                log.info("sync_account.no_messages")
+                return 0
+
+            for msg_ref in raw_msgs:
+                gmail_msg_id = msg_ref["id"]
+                if gmail_msg_id in seen_msg_ids:
+                    continue
+                seen_msg_ids.add(gmail_msg_id)
+                result = await self.sync_message(
+                    account_id=account_id,
+                    user_id=user_id,
+                    gmail_msg_id=gmail_msg_id,
+                    trace_id=trace_id,
+                    access_token=access_token,
+                )
+                if result is not None:
+                    synced_count += 1
+                if len(seen_msg_ids) >= MAX_INITIAL_MESSAGES:
+                    break
+
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
+
+        log.info(
+            "sync_account.complete",
+            synced_count=synced_count,
+            seen=len(seen_msg_ids),
+        )
         return synced_count
 
     async def sync_message(

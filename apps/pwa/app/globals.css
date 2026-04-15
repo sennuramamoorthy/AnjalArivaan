@@ -3,12 +3,51 @@
 @tailwind utilities;
 
 @layer base {
+  /* ------------------------------------------------------------------
+   * Theme tokens — kept in lockstep with AnjalArivaan_UI_Themes.html.
+   * Only two themes are supported: "Classic Light" and "Midnight Dark".
+   * ------------------------------------------------------------------ */
+
+  /* Classic Light (Professional Blue) — default */
   :root {
     color-scheme: light;
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --surface-2: #f0f3f8;
+    --surface-hover: #eef2f8;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-subtle: #94a3b8;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-soft: #dbeafe;
+    --accent: #0ea5e9;
+    --tag-bg: #e0e7ff;
+    --tag-text: #3730a3;
+    --unread-dot: #2563eb;
   }
 
+  /* Midnight Dark */
   .dark {
     color-scheme: dark;
+    --bg: #0b1020;
+    --surface: #131a2e;
+    --surface-2: #1a2238;
+    --surface-hover: #1f2a44;
+    --border: #24304c;
+    --border-strong: #344063;
+    --text: #e6edf7;
+    --text-muted: #94a3b8;
+    --text-subtle: #64748b;
+    --primary: #8b5cf6;
+    --primary-hover: #a78bfa;
+    --primary-soft: #2e2244;
+    --accent: #06b6d4;
+    --tag-bg: #2a1f47;
+    --tag-text: #c4b5fd;
+    --unread-dot: #a78bfa;
   }
 
   html {

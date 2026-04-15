@@ -7,6 +7,16 @@ from .interface import IMailRepository
 
 _GOV_SUFFIXES = (".gov.in", ".nic.in")
 
+# Folder slug → Gmail label that must be present in MailMessage.labels.
+_FOLDER_TO_LABEL = {
+    "inbox": "INBOX",
+    "sent": "SENT",
+    "drafts": "DRAFT",
+    "trash": "TRASH",
+    "starred": "STARRED",
+    "important": "IMPORTANT",
+}
+
 
 class InMemoryMailRepository(IMailRepository):
     """
@@ -36,13 +46,24 @@ class InMemoryMailRepository(IMailRepository):
         self,
         account_id: str,
         *,
+        folder: str = "inbox",
         filter: str = "all",
         search: str = "",
+        sort: str = "newest",
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[MailMessage], int]:
         # Collect all messages for this account
         msgs = [m for m in self._store.values() if m.account_id == account_id]
+
+        # Folder filter — restrict to messages bearing the matching Gmail label.
+        # Trash is excluded by default unless explicitly requested.
+        folder_key = (folder or "inbox").lower()
+        label = _FOLDER_TO_LABEL.get(folder_key)
+        if label is not None:
+            msgs = [m for m in msgs if label in (m.labels or [])]
+        if folder_key != "trash":
+            msgs = [m for m in msgs if "TRASH" not in (m.labels or [])]
 
         # Apply filter
         if filter == "urgent":
@@ -62,8 +83,16 @@ class InMemoryMailRepository(IMailRepository):
                 or q in m.body_text.lower()
             ]
 
-        # Sort by received_at DESC
-        msgs.sort(key=lambda m: m.received_at, reverse=True)
+        # Sort
+        sort_key = (sort or "newest").lower()
+        if sort_key == "oldest":
+            msgs.sort(key=lambda m: m.received_at)
+        elif sort_key == "sender":
+            msgs.sort(key=lambda m: m.from_address.lower())
+        elif sort_key == "subject":
+            msgs.sort(key=lambda m: (m.subject or "").lower())
+        else:  # newest (default)
+            msgs.sort(key=lambda m: m.received_at, reverse=True)
         total = len(msgs)
 
         # Paginate
@@ -91,3 +120,11 @@ class InMemoryMailRepository(IMailRepository):
             return False
         msg.is_read = True
         return True
+
+    async def mark_thread_read(self, thread_id: str, account_id: str) -> int:
+        updated = 0
+        for m in self._store.values():
+            if m.thread_id == thread_id and m.account_id == account_id and not m.is_read:
+                m.is_read = True
+                updated += 1
+        return updated

@@ -99,39 +99,70 @@ class PostgresMailRepository(IMailRepository):
         result = await self.find_by_gmail_msg_id(gmail_msg_id, account_id)
         return result is not None
 
+    # Maps the folder slug used by the API/UI to the Gmail system label
+    # value stored in mail_messages.labels (text[]).
+    _FOLDER_TO_LABEL: dict[str, str] = {
+        "inbox": "INBOX",
+        "sent": "SENT",
+        "drafts": "DRAFT",
+        "trash": "TRASH",
+        "starred": "STARRED",
+        "important": "IMPORTANT",
+    }
+
     async def list_by_account(
         self,
         account_id: str,
         *,
+        folder: str = "inbox",
         filter: str = "all",
         search: str = "",
+        sort: str = "newest",
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[MailMessage], int]:
         loop = asyncio.get_event_loop()
-        with self._logger.timed("postgres.list_by_account", account_id=account_id):
+        with self._logger.timed(
+            "postgres.list_by_account", account_id=account_id, folder=folder
+        ):
             return await loop.run_in_executor(
                 None,
-                lambda: self._list_by_account_sync(account_id, filter, search, page, page_size),
+                lambda: self._list_by_account_sync(
+                    account_id, folder, filter, search, sort, page, page_size
+                ),
             )
 
     def _list_by_account_sync(
         self,
         account_id: str,
+        folder: str,
         filter: str,
         search: str,
+        sort: str,
         page: int,
         page_size: int,
     ) -> tuple[list[MailMessage], int]:
         where = "WHERE account_id = %s"
         params: list[Any] = [account_id]
 
+        # Folder filter — maps to a Gmail label that must be present in
+        # the labels[] column. `all` skips the folder constraint.
+        label = self._FOLDER_TO_LABEL.get(folder.lower())
+        if label is not None:
+            where += " AND %s = ANY(labels)"
+            params.append(label)
+        # Trash is excluded by default unless explicitly requested, so
+        # archived/deleted threads don't leak into Inbox/Important/etc.
+        if folder.lower() != "trash":
+            where += " AND NOT ('TRASH' = ANY(labels))"
+
         if filter == "urgent":
             where += " AND urgency_level IN ('HIGH', 'CRITICAL')"
         elif filter == "unread":
             where += " AND is_read = FALSE"
         elif filter == "government":
-            where += " AND (from_address LIKE '%.gov.in' OR from_address LIKE '%.nic.in')"
+            # Double the % so psycopg2 doesn't treat them as param placeholders.
+            where += " AND (from_address LIKE '%%.gov.in' OR from_address LIKE '%%.nic.in')"
 
         if search:
             pattern = f"%{search}%"
@@ -143,9 +174,17 @@ class PostgresMailRepository(IMailRepository):
                 cur.execute(f"SELECT COUNT(*) AS total FROM mail_messages {where}", params)
                 total = cur.fetchone()["total"]
 
+                # Whitelisted sort — never interpolate untrusted sort strings.
+                order_by = {
+                    "newest": "received_at DESC",
+                    "oldest": "received_at ASC",
+                    "sender": "LOWER(from_address) ASC, received_at DESC",
+                    "subject": "LOWER(subject) ASC, received_at DESC",
+                }.get((sort or "newest").lower(), "received_at DESC")
+
                 offset = (page - 1) * page_size
                 cur.execute(
-                    f"SELECT * FROM mail_messages {where} ORDER BY received_at DESC LIMIT %s OFFSET %s",
+                    f"SELECT * FROM mail_messages {where} ORDER BY {order_by} LIMIT %s OFFSET %s",
                     params + [page_size, offset],
                 )
                 rows = cur.fetchall()
@@ -204,6 +243,24 @@ class PostgresMailRepository(IMailRepository):
                 )
             conn.commit()
             return cur.rowcount > 0
+
+    async def mark_thread_read(self, thread_id: str, account_id: str) -> int:
+        loop = asyncio.get_event_loop()
+        with self._logger.timed("postgres.mark_thread_read", thread_id=thread_id):
+            return await loop.run_in_executor(
+                None, lambda: self._mark_thread_read_sync(thread_id, account_id)
+            )
+
+    def _mark_thread_read_sync(self, thread_id: str, account_id: str) -> int:
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE mail_messages SET is_read = TRUE "
+                    "WHERE thread_id = %s AND account_id = %s AND is_read = FALSE",
+                    (thread_id, account_id),
+                )
+                conn.commit()
+                return cur.rowcount
 
     @staticmethod
     def _row_to_domain(row: dict[str, Any]) -> MailMessage:

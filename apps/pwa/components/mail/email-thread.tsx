@@ -7,6 +7,7 @@ import { cn, formatDateTime, truncate } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { EmailBodyFrame } from '@/components/mail/email-body-frame';
 import type { EmailThread as EmailThreadType, EmailMessage } from '@/lib/api/mail';
 
 interface ThreadMessageProps {
@@ -78,10 +79,9 @@ function ThreadMessage({ message, defaultOpen = false }: ThreadMessageProps) {
             <Separator />
             <div className="p-4">
               {message.bodyHtml ? (
-                <div
-                  className="prose prose-sm max-w-none dark:prose-invert text-gray-700 dark:text-gray-300"
-                  dangerouslySetInnerHTML={{ __html: message.bodyHtml }}
-                />
+                // Render inside a sandboxed iframe so the email's own <style>
+                // blocks can't leak into the app chrome.
+                <EmailBodyFrame html={message.bodyHtml} />
               ) : (
                 <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
                   {message.bodyText}

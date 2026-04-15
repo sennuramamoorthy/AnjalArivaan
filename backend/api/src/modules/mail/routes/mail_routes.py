@@ -101,12 +101,17 @@ def _to_email_message(msg) -> dict:
 async def list_mail(
     request: Request,
     accountId: Optional[str] = Query(None),
+    folder: str = Query(
+        "inbox",
+        description="Gmail folder/label slug: inbox|sent|drafts|trash|starred|important|all",
+    ),
     filter: str = Query("all"),
     search: str = Query(""),
+    sort: str = Query("newest", description="newest|oldest|sender|subject"),
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ):
-    """List emails for an account with filtering, search, and pagination."""
+    """List emails for an account with folder + cross-cut filtering, search, and pagination."""
     trace_id = _trace_id(request)
 
     user = _get_user(request)
@@ -130,7 +135,13 @@ async def list_mail(
         )
 
     msgs, total = await mail_repo.list_by_account(
-        accountId, filter=filter, search=search, page=page, page_size=pageSize,
+        accountId,
+        folder=folder,
+        filter=filter,
+        search=search,
+        sort=sort,
+        page=page,
+        page_size=pageSize,
     )
 
     emails = [_to_email_summary(m) for m in msgs]
@@ -239,6 +250,39 @@ async def get_thread(
         },
         trace_id,
     )
+
+
+@router.patch("/mail/threads/{thread_id}/read")
+async def mark_thread_read(
+    thread_id: str,
+    request: Request,
+    accountId: Optional[str] = Query(None),
+):
+    """Mark every message in a thread as read (Gmail-style open-to-read)."""
+    trace_id = _trace_id(request)
+
+    user = _get_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
+        )
+
+    if not accountId:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("BAD_REQUEST", "accountId query parameter is required", trace_id),
+        )
+
+    mail_repo = getattr(request.app.state, "mail_repo", None)
+    if mail_repo is None:
+        return JSONResponse(
+            status_code=503,
+            content=error_response("SERVICE_UNAVAILABLE", "Mail service not available", trace_id),
+        )
+
+    updated = await mail_repo.mark_thread_read(thread_id, accountId)
+    return success_response({"success": True, "updated": updated}, trace_id)
 
 
 @router.patch("/mail/{mail_id}/read")

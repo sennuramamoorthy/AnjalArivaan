@@ -33,8 +33,16 @@ class GmailAdapter(IGmailAdapter):
         access_token: str,
         max_results: int = 50,
         page_token: str | None = None,
+        include_spam_trash: bool = True,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"maxResults": max_results}
+        # Gmail's /messages endpoint excludes SPAM and TRASH by default, which
+        # means Trash stays empty in the PWA even after a full sync. We flip
+        # includeSpamTrash on so Trash gets populated; Spam ends up filtered
+        # out later via the folder filter (it's a separate label).
+        params: dict[str, Any] = {
+            "maxResults": max_results,
+            "includeSpamTrash": "true" if include_spam_trash else "false",
+        }
         if page_token:
             params["pageToken"] = page_token
 

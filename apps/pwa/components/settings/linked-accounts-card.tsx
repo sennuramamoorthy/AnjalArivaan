@@ -1,13 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Unlink, Loader2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { Plus, Unlink, Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useLinkedAccounts, useInitiateLink, useRevokeAccount } from '@/lib/hooks/use-account-link';
+import {
+  useLinkedAccounts,
+  useInitiateLink,
+  useRevokeAccount,
+  useSyncAccount,
+} from '@/lib/hooks/use-account-link';
 import type { LinkedAccountDetail } from '@/lib/api/auth';
 
 const STATUS_CONFIG: Record<string, { label: string; variant: 'success' | 'warning' | 'urgent'; icon: React.ElementType }> = {
@@ -20,10 +25,14 @@ function AccountRow({
   account,
   onRevoke,
   isRevoking,
+  onSync,
+  isSyncing,
 }: {
   account: LinkedAccountDetail;
   onRevoke: (id: string) => void;
   isRevoking: boolean;
+  onSync: (id: string) => void;
+  isSyncing: boolean;
 }) {
   const [confirmUnlink, setConfirmUnlink] = React.useState(false);
   const config = STATUS_CONFIG[account.status] ?? STATUS_CONFIG.ACTIVE;
@@ -75,7 +84,24 @@ function AccountRow({
       </div>
 
       {account.status === 'ACTIVE' && (
-        <div className="shrink-0">
+        <div className="shrink-0 flex items-center gap-1">
+          {!confirmUnlink && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onSync(account.id)}
+              disabled={isSyncing}
+              className="text-gray-500 hover:text-primary-600"
+              title="Sync account"
+            >
+              {isSyncing ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              Sync
+            </Button>
+          )}
           {confirmUnlink ? (
             <div className="flex items-center gap-1.5">
               <Button
@@ -131,6 +157,7 @@ export function LinkedAccountsCard() {
   const { data: accounts, isLoading, isError, error } = useLinkedAccounts();
   const { mutate: initiateLink, isPending: isLinking } = useInitiateLink();
   const { mutate: revokeAccount, isPending: isRevoking } = useRevokeAccount();
+  const { mutate: syncAccount, isPending: isSyncing, variables: syncingId } = useSyncAccount();
 
   // Treat empty data or error as "no accounts linked" — show the empty CTA
   const hasNoAccounts = !accounts || accounts.length === 0;
@@ -201,6 +228,8 @@ export function LinkedAccountsCard() {
               account={account}
               onRevoke={(id) => revokeAccount(id)}
               isRevoking={isRevoking}
+              onSync={(id) => syncAccount(id)}
+              isSyncing={isSyncing && syncingId === account.id}
             />
           ))}
         </div>

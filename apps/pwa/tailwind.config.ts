@@ -6,16 +6,35 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Primary palette is keyed to the active theme via CSS variables in
+        // app/globals.css. Light = Classic Light blue (#2563eb), Dark =
+        // Midnight Dark violet (#8b5cf6). Numbered shades remain static for
+        // surfaces/borders that need a fixed tone.
         primary: {
-          DEFAULT: '#4F46E5',
+          DEFAULT: 'var(--primary)',
+          hover: 'var(--primary-hover)',
+          soft: 'var(--primary-soft)',
           50: '#EEF2FF',
           100: '#E0E7FF',
           200: '#C7D2FE',
           500: '#6366F1',
-          600: '#4F46E5',
-          700: '#4338CA',
+          600: 'var(--primary)',
+          700: 'var(--primary-hover)',
           900: '#1E1B4B',
         },
+        // Theme-aware semantic tokens (use via bg-surface, text-fg, etc.).
+        bg: 'var(--bg)',
+        surface: {
+          DEFAULT: 'var(--surface)',
+          2: 'var(--surface-2)',
+          hover: 'var(--surface-hover)',
+        },
+        fg: {
+          DEFAULT: 'var(--text)',
+          muted: 'var(--text-muted)',
+          subtle: 'var(--text-subtle)',
+        },
+        accent: 'var(--accent)',
         urgent: { DEFAULT: '#EF4444', light: '#FEE2E2', dark: '#B91C1C' },
         success: { DEFAULT: '#10B981', light: '#D1FAE5' },
         warning: { DEFAULT: '#F59E0B', light: '#FEF3C7' },

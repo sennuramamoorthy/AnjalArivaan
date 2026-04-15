@@ -18,6 +18,12 @@ export interface EmailCardProps {
   urgencyLevel: UrgencyLevel;
   hasAttachment: boolean;
   linkedAccount: string;
+  /**
+   * App-defined tags (e.g. "IQAC", "Admissions"). Gmail system labels are
+   * intentionally NOT rendered here — only tags produced by our own
+   * classification pipeline appear.
+   */
+  appTags?: string[];
   onClick?: () => void;
 }
 
@@ -36,9 +42,11 @@ export function EmailCard({
   urgencyLevel,
   hasAttachment,
   linkedAccount,
+  appTags,
   onClick,
 }: EmailCardProps) {
   const isCriticalOrHigh = urgencyLevel === 'CRITICAL' || urgencyLevel === 'HIGH';
+  const tags = appTags ?? [];
 
   return (
     <button
@@ -116,12 +124,22 @@ export function EmailCard({
           )}
         </div>
 
-        {/* Row 4: account tag */}
-        <div className="mt-1.5">
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
-            {linkedAccount}
-          </span>
-        </div>
+        {/* Row 4: app tags (never Gmail labels) */}
+        {tags.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {tags.slice(0, 4).map((tag) => (
+              <span
+                key={tag}
+                className={cn(
+                  'text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                  'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+                )}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Unread dot */}

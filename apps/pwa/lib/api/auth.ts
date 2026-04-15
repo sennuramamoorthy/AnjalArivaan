@@ -131,3 +131,14 @@ export function completeAccountLink(code: string, state: string) {
 export function revokeLinkedAccount(accountId: string) {
   return apiClient.delete<{ success: boolean }>(`/api/v1/accounts/linked/${accountId}`);
 }
+
+/**
+ * Trigger a manual Gmail sync for a linked account. The backend runs the
+ * sync_service in the background and returns immediately; poll linked
+ * account details afterwards to see the updated `lastSyncAt`.
+ */
+export function syncLinkedAccount(accountId: string) {
+  return apiClient.post<{ success: boolean; syncedCount?: number }>(
+    `/api/v1/accounts/linked/${accountId}/sync`
+  );
+}

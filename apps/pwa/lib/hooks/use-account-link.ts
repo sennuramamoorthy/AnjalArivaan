@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth-store';
 import * as authApi from '@/lib/api/auth';
@@ -13,10 +14,17 @@ export const accountKeys = {
  * Fetch linked accounts with full detail (status, lastSyncAt).
  */
 export function useLinkedAccounts() {
-  return useQuery({
+  const setLinkedAccounts = useAuthStore((s) => s.setLinkedAccounts);
+  const query = useQuery({
     queryKey: accountKeys.linked(),
     queryFn: authApi.getLinkedAccountDetails,
   });
+  // Mirror fetched accounts into the store so other consumers (mail list,
+  // account switcher) see the live list + a valid activeAccountId fallback.
+  React.useEffect(() => {
+    if (query.data) setLinkedAccounts(query.data);
+  }, [query.data, setLinkedAccounts]);
+  return query;
 }
 
 /**
@@ -55,6 +63,22 @@ export function useCompleteLink() {
         .catch(() => {
           // Non-fatal — /settings will refetch
         });
+    },
+  });
+}
+
+/**
+ * Trigger a manual Gmail sync for a linked account. Invalidates the mail
+ * list and the linked-account details so the UI reflects new messages and
+ * the updated `lastSyncAt` timestamp.
+ */
+export function useSyncAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: authApi.syncLinkedAccount,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.linked() });
+      queryClient.invalidateQueries({ queryKey: ['mail'] });
     },
   });
 }

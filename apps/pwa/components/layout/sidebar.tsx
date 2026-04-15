@@ -2,208 +2,335 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  LayoutDashboard,
-  Mail,
-  CalendarDays,
+  Inbox,
+  Star,
+  AlertTriangle,
+  Send,
+  FileText,
+  Trash2,
   CheckSquare,
-  Settings,
+  Plane,
+  CalendarDays,
+  MessageSquare,
   ChevronLeft,
   ChevronRight,
+  Plus,
   Sparkles,
+  LayoutDashboard,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui-store';
 import { useAuthStore } from '@/store/auth-store';
 import { Avatar } from '@/components/ui/avatar';
 import { Tooltip } from '@/components/ui/tooltip';
-import { Badge } from '@/components/ui/badge';
 
-const URGENT_MAIL_COUNT = 2;
+/**
+ * App sidebar — modeled on AnjalArivaan_UI_Themes.html `.sidebar`. Three
+ * grouped sections:
+ *   • Mailbox  — Inbox / Important / Sent / Drafts / Trash
+ *   • AI-Powered — Tasks / Travel / Calendar / AI Chat
+ *   • Tags — colored dot labels for quick filtering
+ *
+ * Items that don't have backend support yet route to /mail with a query
+ * filter or are flagged `comingSoon` (visually present, click is a no-op).
+ * The collapse toggle hides labels and shows icon-only mode.
+ */
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
-  badge?: number | string;
-  badgeVariant?: 'urgent' | 'default' | 'warning';
+  count?: number;
+  /** When set, item is active only when ?folder= matches this value. */
+  folder?: string;
+  /** When set, item is active only when ?filter= matches this value. */
+  filter?: string;
   comingSoon?: boolean;
 }
 
-const navItems: NavItem[] = [
+interface TagItem {
+  label: string;
+  color: string;
+  filter: string;
+}
+
+// Mailbox folders map to Gmail system labels. The list pane reads
+// ?folder= from the URL and queries the backend with the matching label
+// (see backend/api/src/modules/mail/repositories — _FOLDER_TO_LABEL).
+const MAILBOX_ITEMS: NavItem[] = [
+  { label: 'Inbox', href: '/mail?folder=inbox', icon: Inbox, folder: 'inbox' },
+  { label: 'Starred', href: '/mail?folder=starred', icon: Star, folder: 'starred' },
+  { label: 'Important', href: '/mail?folder=important', icon: AlertTriangle, folder: 'important' },
+  { label: 'Sent', href: '/mail?folder=sent', icon: Send, folder: 'sent' },
+  { label: 'Drafts', href: '/mail?folder=drafts', icon: FileText, folder: 'drafts' },
+  { label: 'Trash', href: '/mail?folder=trash', icon: Trash2, folder: 'trash' },
+];
+
+const AI_ITEMS: NavItem[] = [
+  { label: 'Tasks', href: '/tasks', icon: CheckSquare, count: 12, comingSoon: true },
+  { label: 'Travel', href: '/travel', icon: Plane, count: 2, comingSoon: true },
+  { label: 'Calendar', href: '/calendar', icon: CalendarDays, comingSoon: true },
+  { label: 'AI Chat', href: '/chat', icon: MessageSquare, comingSoon: true },
+];
+
+const TAG_ITEMS: TagItem[] = [
+  { label: 'Urgent', color: '#ef4444', filter: 'urgent' },
+  { label: 'Admissions', color: '#f59e0b', filter: 'admissions' },
+  { label: 'Research', color: '#10b981', filter: 'research' },
+  { label: 'IQAC', color: '#8b5cf6', filter: 'iqac' },
+];
+
+const TOP_NAV: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  {
-    label: 'Mail',
-    href: '/mail',
-    icon: Mail,
-    badge: URGENT_MAIL_COUNT,
-    badgeVariant: 'urgent',
-  },
-  {
-    label: 'Meetings',
-    href: '/meetings',
-    icon: CalendarDays,
-    comingSoon: true,
-  },
-  {
-    label: 'Tasks',
-    href: '/tasks',
-    icon: CheckSquare,
-    comingSoon: true,
-  },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 
+interface SidebarItemProps {
+  item: NavItem;
+  isActive: boolean;
+  collapsed: boolean;
+}
+
+function SidebarItem({ item, isActive, collapsed }: SidebarItemProps) {
+  const Icon = item.icon;
+  const content = (
+    <Link
+      href={item.comingSoon ? '#' : item.href}
+      onClick={item.comingSoon ? (e) => e.preventDefault() : undefined}
+      aria-current={isActive ? 'page' : undefined}
+      className={cn(
+        'group flex items-center rounded-lg text-sm transition-colors',
+        collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2',
+        isActive
+          ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100',
+        item.comingSoon && 'cursor-default opacity-60'
+      )}
+    >
+      <Icon
+        size={16}
+        className={cn(
+          'shrink-0 opacity-90',
+          isActive && 'text-primary-600 dark:text-primary-300'
+        )}
+      />
+      {!collapsed && (
+        <>
+          <span className="flex-1 truncate">{item.label}</span>
+          {item.count !== undefined && !item.comingSoon && (
+            <span
+              className={cn(
+                'ml-auto rounded-full border px-2 py-px text-[11px] font-medium',
+                isActive
+                  ? 'border-primary-600 bg-primary-600 text-white dark:border-primary-500 dark:bg-primary-500'
+                  : 'border-gray-200 bg-white text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400'
+              )}
+            >
+              {item.count}
+            </span>
+          )}
+        </>
+      )}
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip content={item.comingSoon ? `${item.label} (Coming Soon)` : item.label} side="right">
+        <div className="relative">{content}</div>
+      </Tooltip>
+    );
+  }
+  return content;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentFilter = searchParams.get('filter');
+  const currentFolder = searchParams.get('folder') ?? 'inbox';
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { user } = useAuthStore();
+  const collapsed = !sidebarOpen;
+
+  /** Match logic: an item is active when its base path matches AND, if it
+   *  declares a `folder`/`filter`, the URL's matching param agrees. */
+  function isItemActive(item: NavItem): boolean {
+    const [base] = item.href.split('?');
+    if (!pathname.startsWith(base)) return false;
+    // Folder-scoped items (mailbox rows) — must match ?folder= AND must
+    // not have an active cross-cut filter set, so the filter pills don't
+    // light multiple sidebar items at once.
+    if (item.folder) return currentFolder === item.folder && !currentFilter;
+    if (item.filter) return currentFilter === item.filter;
+    if (base === '/mail') return !currentFilter && currentFolder === 'inbox';
+    return true;
+  }
 
   return (
     <aside
       className={cn(
-        'hidden lg:flex flex-col shrink-0 h-screen sticky top-0',
-        'border-r border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950',
-        'transition-all duration-300 ease-in-out',
-        sidebarOpen ? 'w-60' : 'w-16'
+        'sticky top-0 hidden h-screen shrink-0 flex-col lg:flex',
+        'border-r border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900',
+        'transition-[width] duration-300 ease-in-out',
+        collapsed ? 'w-16' : 'w-60'
       )}
     >
-      {/* Logo */}
+      {/* Brand */}
       <div
         className={cn(
-          'flex h-14 items-center border-b border-gray-200 dark:border-gray-800',
-          sidebarOpen ? 'px-4 gap-2.5' : 'justify-center px-0'
+          'flex h-14 shrink-0 items-center border-b border-gray-200 dark:border-gray-800',
+          collapsed ? 'justify-center px-0' : 'gap-2.5 px-4'
         )}
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-600">
-          <Sparkles size={16} className="text-white" />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary-600 to-accent text-[13px] font-extrabold text-white">
+          Aa
         </div>
-        {sidebarOpen && (
+        {!collapsed && (
           <div className="min-w-0">
-            <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
+            <p className="truncate text-sm font-bold text-gray-900 dark:text-gray-100">
               AnjalArivaan
             </p>
-            <p className="text-[10px] text-gray-400 truncate">Takshashila University</p>
+            <p className="truncate text-[10px] text-gray-500 dark:text-gray-400">
+              Takshashila University
+            </p>
           </div>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2" aria-label="Main navigation">
-        <ul className="space-y-0.5">
-          {navItems.map((item) => {
-            const isActive = pathname.startsWith(item.href);
-            const Icon = item.icon;
+      {/* Compose */}
+      <div className={cn(collapsed ? 'p-2' : 'p-3')}>
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2'
+          )}
+          aria-label="Compose new email"
+        >
+          <Plus size={16} />
+          {!collapsed && <span>Compose</span>}
+        </button>
+      </div>
 
-            const linkContent = (
-              <Link
-                href={item.comingSoon ? '#' : item.href}
-                aria-current={isActive ? 'page' : undefined}
-                className={cn(
-                  'group flex items-center rounded-lg transition-colors',
-                  sidebarOpen ? 'gap-3 px-3 py-2' : 'justify-center p-2.5',
-                  isActive
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100',
-                  item.comingSoon && 'cursor-default opacity-60'
-                )}
-                onClick={item.comingSoon ? (e) => e.preventDefault() : undefined}
-              >
-                <Icon
-                  size={18}
-                  className={cn(
-                    'shrink-0',
-                    isActive
-                      ? 'text-primary-600 dark:text-primary-400'
-                      : 'text-gray-500 group-hover:text-gray-700 dark:text-gray-500 dark:group-hover:text-gray-300'
-                  )}
-                />
-                {sidebarOpen && (
-                  <>
-                    <span className="flex-1 text-sm font-medium truncate">{item.label}</span>
-                    {item.badge && !item.comingSoon && (
-                      <Badge variant={item.badgeVariant ?? 'default'} className="ml-auto">
-                        {item.badge}
-                      </Badge>
-                    )}
-                    {item.comingSoon && (
-                      <Badge variant="default" className="ml-auto text-[10px]">
-                        Soon
-                      </Badge>
-                    )}
-                  </>
-                )}
-              </Link>
-            );
-
-            return (
-              <li key={item.href}>
-                {!sidebarOpen ? (
-                  <Tooltip content={item.comingSoon ? `${item.label} (Coming Soon)` : item.label} side="right">
-                    <div className="relative">
-                      {linkContent}
-                      {item.badge && !item.comingSoon && (
-                        <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
-                          {item.badge}
-                        </span>
-                      )}
-                    </div>
-                  </Tooltip>
-                ) : (
-                  linkContent
-                )}
+      {/* Sections */}
+      <nav className="flex-1 overflow-y-auto px-2 pb-3" aria-label="Main navigation">
+        {/* Mailbox */}
+        <div className="mt-1">
+          {!collapsed && (
+            <p className="px-3 pb-1.5 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              Mailbox
+            </p>
+          )}
+          <ul className="space-y-0.5">
+            {MAILBOX_ITEMS.map((item) => (
+              <li key={item.label}>
+                <SidebarItem item={item} isActive={isItemActive(item)} collapsed={collapsed} />
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        </div>
+
+        {/* AI-Powered */}
+        <div className="mt-4">
+          {!collapsed && (
+            <p className="px-3 pb-1.5 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              AI-Powered
+            </p>
+          )}
+          <ul className="space-y-0.5">
+            {AI_ITEMS.map((item) => (
+              <li key={item.label}>
+                <SidebarItem item={item} isActive={isItemActive(item)} collapsed={collapsed} />
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Tags */}
+        {!collapsed && (
+          <div className="mt-4">
+            <p className="px-3 pb-1.5 pt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              Tags
+            </p>
+            <ul className="space-y-0.5">
+              {TAG_ITEMS.map((tag) => (
+                <li key={tag.label}>
+                  <Link
+                    href={`/mail?filter=${tag.filter}`}
+                    className={cn(
+                      'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                      currentFilter === tag.filter
+                        ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100'
+                    )}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: tag.color }}
+                    />
+                    <span className="flex-1 truncate">{tag.label}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Top-level (Dashboard / Settings) — kept available so the sidebar
+            doubles as the global app nav. */}
+        <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
+          <ul className="space-y-0.5">
+            {TOP_NAV.map((item) => (
+              <li key={item.label}>
+                <SidebarItem item={item} isActive={isItemActive(item)} collapsed={collapsed} />
+              </li>
+            ))}
+          </ul>
+        </div>
       </nav>
 
-      {/* User */}
-      <div className={cn('border-t border-gray-200 dark:border-gray-800 p-2')}>
+      {/* User card + collapse */}
+      <div className="border-t border-gray-200 p-2 dark:border-gray-800">
         {user ? (
           <div
             className={cn(
               'flex items-center rounded-lg px-2 py-2',
-              sidebarOpen ? 'gap-3' : 'justify-center'
+              collapsed ? 'justify-center' : 'gap-3'
             )}
           >
-            <Avatar
-              src={user.avatarUrl}
-              name={user.name}
-              size="sm"
-              className="shrink-0"
-            />
-            {sidebarOpen && (
+            <Avatar src={user.avatarUrl} name={user.name} size="sm" className="shrink-0" />
+            {!collapsed && (
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                   {user.name}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.role}</p>
+                <p className="truncate text-xs text-gray-500 dark:text-gray-400">{user.role}</p>
               </div>
             )}
           </div>
         ) : null}
 
-        {/* Collapse toggle */}
         <button
           onClick={toggleSidebar}
           className={cn(
-            'mt-1 flex w-full items-center rounded-lg px-2 py-2 text-xs text-gray-500',
+            'mt-1 flex w-full items-center rounded-lg px-2 py-2 text-xs text-gray-500 transition-colors',
             'hover:bg-gray-100 dark:hover:bg-gray-800',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
-            'transition-colors',
-            sidebarOpen ? 'gap-2' : 'justify-center'
+            collapsed ? 'justify-center' : 'gap-2'
           )}
-          aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {sidebarOpen ? (
+          {collapsed ? (
+            <ChevronRight size={14} />
+          ) : (
             <>
               <ChevronLeft size={14} />
               <span>Collapse</span>
             </>
-          ) : (
-            <ChevronRight size={14} />
           )}
         </button>
       </div>
