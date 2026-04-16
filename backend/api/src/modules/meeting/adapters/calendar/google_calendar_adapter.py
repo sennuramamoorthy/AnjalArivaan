@@ -1,18 +1,22 @@
-"""Google Calendar adapter — real implementation stub.
+"""Google Calendar adapter — real implementation.
 
 Delegates to ``googleapiclient`` for event retrieval. Emits structured
-JSON logs per CLAUDE.md (trace_id, duration_ms, service="google-calendar")
-for every outbound call.
+JSON logs per CLAUDE.md (service="google-calendar", operation,
+duration_ms, hashed account_id) for every outbound call.
 
-This adapter is a scaffold: the credential resolution path (Vault lookup
-via account_link token broker) is deferred. The core ``list_events_for_day``
-method is wired so a caller providing a valid OAuth access token gets
-real Google Calendar events; without credentials, it raises a clear
-RuntimeError that the route layer turns into a graceful fallback.
+Degrades gracefully: if the token broker returns no credentials, or the
+Google Calendar API raises, this adapter returns an empty list and never
+propagates the failure — callers (e.g. daily briefing) stay alive.
+
+Per D16 (per-account isolation), ``account_id`` is passed to the token
+broker which enforces ownership; the adapter itself never mixes events
+across accounts since each call resolves a fresh scoped access token.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import time
 from datetime import date, datetime, time as dtime, timezone
 from typing import Any, Optional
@@ -21,6 +25,11 @@ from src.modules.meeting.adapters.calendar.interface import (
     CalendarEvent,
     ICalendarService,
 )
+
+
+def _hash_account_id(account_id: str) -> str:
+    """Return an 8-char sha256 prefix of ``account_id`` for safe logging."""
+    return hashlib.sha256(account_id.encode()).hexdigest()[:8]
 
 
 class GoogleCalendarAdapter(ICalendarService):
@@ -43,17 +52,21 @@ class GoogleCalendarAdapter(ICalendarService):
     async def _resolve_access_token(self, account_id: str) -> Optional[str]:
         """Fetch a fresh Google OAuth access token for ``account_id``.
 
-        Returns None if the broker isn't configured — callers must handle
-        that and degrade gracefully rather than 500.
+        Returns None if the broker isn't configured or returns no token —
+        callers must handle that and degrade gracefully.
         """
         if self._token_broker is None:
             return None
-        return await self._token_broker.get_access_token(account_id)
+        try:
+            return await self._token_broker.get_access_token(account_id)
+        except Exception:
+            return None
 
     def _build_service(self, access_token: str):
         """Build a Google Calendar v3 service client.
 
-        Kept in a helper so unit tests can monkeypatch if needed.
+        Kept in a helper so unit tests can override this seam without
+        needing googleapiclient installed at import time.
         """
         # Imported lazily so unit tests that don't touch this path don't
         # pay the import cost nor require googleapiclient.
@@ -70,25 +83,31 @@ class GoogleCalendarAdapter(ICalendarService):
         return start.isoformat(), end.isoformat()
 
     def _parse_event(self, raw: dict[str, Any]) -> CalendarEvent:
-        start_raw = raw.get("start", {})
-        end_raw = raw.get("end", {})
+        start_raw = raw.get("start", {}) or {}
+        end_raw = raw.get("end", {}) or {}
         start_str = start_raw.get("dateTime") or start_raw.get("date")
         end_str = end_raw.get("dateTime") or end_raw.get("date")
         attendees = [
-            a.get("email") for a in raw.get("attendees", []) if a.get("email")
+            a.get("email") for a in (raw.get("attendees") or []) if a.get("email")
         ]
         return CalendarEvent(
             id=raw.get("id", ""),
             title=raw.get("summary", "(no title)"),
-            start=datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-            if start_str
-            else datetime.now(timezone.utc),
-            end=datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-            if end_str
-            else datetime.now(timezone.utc),
+            start=self._parse_dt(start_str),
+            end=self._parse_dt(end_str),
             location=raw.get("location"),
             attendees=attendees,
         )
+
+    @staticmethod
+    def _parse_dt(value: Optional[str]) -> datetime:
+        if not value:
+            return datetime.now(timezone.utc)
+        # All-day events use ``YYYY-MM-DD`` (no time component).
+        if "T" not in value:
+            d = date.fromisoformat(value)
+            return datetime.combine(d, dtime.min, tzinfo=timezone.utc)
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
     # ── ICalendarService ─────────────────────────────────────────────
 
@@ -97,9 +116,11 @@ class GoogleCalendarAdapter(ICalendarService):
         account_id: str,
         user_id: str,
         date: date,
+        trace_id: Optional[str] = None,
     ) -> list[CalendarEvent]:
         start_iso, end_iso = self._day_bounds_utc(date)
         t0 = time.monotonic()
+        hashed_account_id = _hash_account_id(account_id)
 
         access_token = await self._resolve_access_token(account_id)
         if access_token is None:
@@ -107,46 +128,56 @@ class GoogleCalendarAdapter(ICalendarService):
                 self._logger.warn(
                     "google_calendar.no_credentials",
                     service="google-calendar",
-                    account_id=account_id,
+                    operation="list_events",
+                    hashed_account_id=hashed_account_id,
+                    trace_id=trace_id,
                 )
             return []
 
         try:
             service = self._build_service(access_token)
-            # ``list().execute()`` is sync — offload via thread if a real
-            # async path is required. In this scaffold we call it directly.
-            resp = (
-                service.events()
-                .list(
-                    calendarId="primary",
-                    timeMin=start_iso,
-                    timeMax=end_iso,
-                    singleEvents=True,
-                    orderBy="startTime",
+            # googleapiclient is synchronous; offload the blocking call so
+            # we don't stall the event loop.
+            def _call():
+                return (
+                    service.events()
+                    .list(
+                        calendarId="primary",
+                        timeMin=start_iso,
+                        timeMax=end_iso,
+                        singleEvents=True,
+                        orderBy="startTime",
+                    )
+                    .execute()
                 )
-                .execute()
-            )
-            items = resp.get("items", [])
+
+            resp = await asyncio.to_thread(_call)
+            items = resp.get("items", []) if resp else []
+            events = [self._parse_event(it) for it in items]
             duration_ms = round((time.monotonic() - t0) * 1000, 1)
             if self._logger:
                 self._logger.info(
                     "google_calendar.list_events",
                     service="google-calendar",
-                    account_id=account_id,
+                    operation="list_events",
+                    hashed_account_id=hashed_account_id,
                     date=date.isoformat(),
-                    event_count=len(items),
+                    event_count=len(events),
                     duration_ms=duration_ms,
+                    trace_id=trace_id,
                 )
-            return [self._parse_event(it) for it in items]
-        except Exception as e:
+            return events
+        except Exception as e:  # includes googleapiclient HttpError
             duration_ms = round((time.monotonic() - t0) * 1000, 1)
             if self._logger:
                 self._logger.error(
                     "google_calendar.list_events_failed",
                     service="google-calendar",
-                    account_id=account_id,
+                    operation="list_events",
+                    hashed_account_id=hashed_account_id,
                     date=date.isoformat(),
                     duration_ms=duration_ms,
+                    trace_id=trace_id,
                     error=e,
                 )
             return []

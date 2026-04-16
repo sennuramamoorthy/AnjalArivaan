@@ -373,12 +373,15 @@ def _wire_production(app: FastAPI, settings) -> None:
             GoogleCalendarAdapter,
         )
 
-        # Token broker integration is deferred — the account-link module
-        # owns the OAuth refresh path. Passing None keeps the adapter in
-        # a safe "no credentials, no calls" mode so the daily briefing
-        # degrades gracefully rather than 500ing.
+        # Prefer the mail-side vault adapter as the token broker — it
+        # already exposes ``async get_access_token(account_id) -> str``
+        # backed by Vault-encrypted refresh tokens (D16-safe: broker
+        # enforces account ownership). If account-link wiring failed,
+        # fall back to None so the adapter stays in "no credentials,
+        # return []" mode and the daily briefing degrades gracefully.
+        calendar_token_broker = getattr(app.state, "mail_vault_adapter", None)
         app.state.calendar_service = GoogleCalendarAdapter(
-            token_broker=None, logger=logger
+            token_broker=calendar_token_broker, logger=logger
         )
     except Exception as e:
         logger.warn(f"Meeting module not fully wired: {e}")
@@ -508,6 +511,15 @@ def _register_routes(app: FastAPI) -> None:
     from src.modules.search.routes.search_routes import router as search_router
 
     app.include_router(search_router, prefix="/api/v1")
+
+    # Task (CRUD; email-driven creation remains in mail-sync per D10)
+    try:
+        from src.modules.task.routes.task_routes import router as task_router
+
+        app.include_router(task_router, prefix="/api/v1")
+    except Exception:
+        # Defensive — never let task-module import errors break app boot.
+        pass
 
 
 def _read_key(path: str, logger) -> str:
