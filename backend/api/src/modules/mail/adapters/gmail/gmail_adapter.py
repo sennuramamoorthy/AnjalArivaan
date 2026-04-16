@@ -120,6 +120,28 @@ class GmailAdapter(IGmailAdapter):
                 resp.raise_for_status()
                 return resp.json()
 
+    async def forward_message(
+        self,
+        account_id: str,
+        message_id: str,
+        to_addresses: list[str],
+    ) -> dict[str, Any]:
+        """
+        Forward an existing Gmail message to the given addresses.
+
+        Not yet implemented: the real flow needs a token broker call to
+        resolve the Gmail access token for ``account_id`` (via the shared
+        Vault / linked-account token adapter) and then reuses the existing
+        ``GmailForwardAdapter`` flow. The notification module currently
+        routes forwards through that adapter; this method exists so future
+        consumers can forward straight through the Gmail adapter interface
+        without reaching into notification internals.
+        """
+        raise NotImplementedError(
+            "GmailAdapter.forward_message is not wired yet — forwards are "
+            "currently dispatched via notification.GmailForwardAdapter."
+        )
+
     async def setup_push_notifications(
         self, access_token: str, topic_name: str, label_ids: list[str]
     ) -> dict[str, Any]:

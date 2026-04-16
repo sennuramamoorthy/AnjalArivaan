@@ -303,10 +303,32 @@ def _wire_production(app: FastAPI, settings) -> None:
     except Exception as e:
         logger.warn(f"Search module not fully wired: {e}")
 
+    # ── Vector store wiring (shared by AI, mail-sync, account-link) ─────
+    # Real Qdrant when qdrant_url reaches a live instance; otherwise an
+    # in-memory MockVectorStore keeps the D16-scoped lifecycle + upsert
+    # code paths exercisable in dev/CI.
+    try:
+        from src.modules.ai.adapters.vector_store.qdrant_adapter import QdrantAdapter
+
+        if settings.qdrant_url:
+            app.state.vector_store = QdrantAdapter(settings, logger=logger)
+        else:
+            raise RuntimeError("qdrant_url not set")
+    except Exception as e:
+        logger.warn(f"Qdrant not reachable — falling back to MockVectorStore: {e}")
+        try:
+            from src.modules.ai.adapters.vector_store.mock_vector_store import (
+                MockVectorStore,
+            )
+
+            app.state.vector_store = MockVectorStore()
+        except Exception as e2:
+            logger.warn(f"Vector store not wired at all: {e2}")
+            app.state.vector_store = None
+
     # ── AI module wiring ─────────────────────────────────────────
     try:
         from src.modules.ai.adapters.llm.vllm_adapter import VLLMAdapter
-        from src.modules.ai.adapters.vector_store.qdrant_adapter import QdrantAdapter
         from src.modules.ai.adapters.template_store.jinja_template_store import JinjaTemplateStore
         from src.modules.ai.repositories.postgres_role_template_repo import PostgresRoleTemplateRepo
         from src.modules.ai.services.context_assembler import ContextAssembler
@@ -314,7 +336,16 @@ def _wire_production(app: FastAPI, settings) -> None:
         from src.modules.ai.services.orchestrator import AIOrchestrator
 
         llm_adapter = VLLMAdapter(settings, logger=logger)
-        vector_store = QdrantAdapter(settings, logger=logger)
+        vector_store = app.state.vector_store
+        if vector_store is None:
+            # Defensive: ContextAssembler requires a vector store. Use a
+            # no-op MockVectorStore so the AI pipeline still serves (RAG
+            # will just return zero chunks).
+            from src.modules.ai.adapters.vector_store.mock_vector_store import (
+                MockVectorStore,
+            )
+            vector_store = MockVectorStore()
+            app.state.vector_store = vector_store
         template_store = JinjaTemplateStore()
         role_repo = PostgresRoleTemplateRepo(settings, logger=logger)
         assembler = ContextAssembler(
@@ -335,6 +366,38 @@ def _wire_production(app: FastAPI, settings) -> None:
         )
     except Exception as e:
         logger.warn(f"AI module not fully wired: {e}")
+
+    # ── Meeting module wiring (Google Calendar adapter) ─────────────
+    try:
+        from src.modules.meeting.adapters.calendar.google_calendar_adapter import (
+            GoogleCalendarAdapter,
+        )
+
+        # Token broker integration is deferred — the account-link module
+        # owns the OAuth refresh path. Passing None keeps the adapter in
+        # a safe "no credentials, no calls" mode so the daily briefing
+        # degrades gracefully rather than 500ing.
+        app.state.calendar_service = GoogleCalendarAdapter(
+            token_broker=None, logger=logger
+        )
+    except Exception as e:
+        logger.warn(f"Meeting module not fully wired: {e}")
+
+    # ── Task module wiring ──────────────────────────────────────────
+    # Table may not yet exist in Phase 1 — repo handles that itself by
+    # returning empty list + warning. We still wrap instantiation in a
+    # try/except so app boot never fails on task module issues.
+    try:
+        from src.modules.task.repositories.postgres_task_repo import (
+            PostgresTaskRepository,
+        )
+
+        if app.state.db_pool:
+            app.state.task_repo = PostgresTaskRepository(
+                app.state.db_pool, logger=logger
+            )
+    except Exception as e:
+        logger.warn(f"Task module not fully wired: {e}")
 
     # ── Notification module wiring ──────────────────────────────────
     try:
@@ -368,10 +431,29 @@ def _wire_production(app: FastAPI, settings) -> None:
             message_bus=outbox_adapter,
         )
 
-        # Wire outbox poller with notification handler
+        # Expose WhatsApp adapter for any caller that needs ad-hoc
+        # escalation (admin console, future on-call paging, etc.).
+        app.state.whatsapp_adapter = whatsapp_adapter
+
+        # Wire outbox poller with notification handler. The handler carries
+        # both the legacy notification_service (drives ``process_message``)
+        # and the direct-DI bundle for ``handle_new_mail``. Construction is
+        # tolerant of missing optional deps — gmail_adapter / audit_repo
+        # resolve to None if their modules failed to wire.
+        gmail_adapter_ref = getattr(app.state, "gmail_adapter", None)
+        audit_repo_ref = getattr(app.state, "audit_repo", None)
+
         mail_event_handler = MailEventHandler(
             notification_service=notification_service,
+            rule_engine=rule_engine,
+            whatsapp_adapter=whatsapp_adapter,
+            gmail_adapter=gmail_adapter_ref,
+            user_repo=notification_user_repo,
+            audit_repo=audit_repo_ref,
+            logger=logger,
         )
+        app.state.mail_event_handler = mail_event_handler
+
         outbox_poller = OutboxPoller(conn_pool=pool, poll_interval=1.0)
         outbox_poller.register("mail.new", mail_event_handler.process_message)
         app.state.outbox_poller = outbox_poller

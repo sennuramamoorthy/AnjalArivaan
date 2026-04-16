@@ -43,6 +43,8 @@ class MailSyncService:
         object_storage: IObjectStorage,
         message_bus: IMessageBus,
         logger: Any,
+        vector_store: Any = None,
+        embedding_adapter: Any = None,
     ) -> None:
         self._gmail = gmail_adapter
         self._vault = vault_adapter
@@ -51,6 +53,10 @@ class MailSyncService:
         self._bus = message_bus
         self._logger = logger
         self._parser = GmailMessageParser()
+        # Optional D16-scoped embedding pipeline. When either dep is missing
+        # we skip embedding work silently and rely on OpenSearch for retrieval.
+        self._vector_store = vector_store
+        self._embedding_adapter = embedding_adapter
 
     # ------------------------------------------------------------------
     # Public API
@@ -162,6 +168,10 @@ class MailSyncService:
         with log.timed("repo.save_mail", mail_id=mail.id):
             await self._repo.save(mail)
 
+        # Best-effort embedding + Qdrant upsert. No-ops if either dep is
+        # unwired. D16: always targets the mail's own account collection.
+        await self._maybe_upsert_embedding(mail, log)
+
         await self._handle_attachments(
             message=mail,
             attachments=attachments,
@@ -256,3 +266,50 @@ class MailSyncService:
             "outbox.publish", topic="attachment-events", event_type="attachment.ready"
         ):
             await self._bus.publish("attachment-events", dataclasses.asdict(event))
+
+    async def _maybe_upsert_embedding(
+        self,
+        mail: MailMessage,
+        log: Any,
+    ) -> None:
+        """Embed the mail body and upsert to Qdrant, if both deps are wired.
+
+        D16 guarantee: the upsert is scoped to `collection_name = mail.account_id`
+        and the `ChunkEmbedding.account_id == mail.account_id`, so the
+        vector-store adapter's isolation guard can never fire for a correctly
+        assembled mail.
+
+        No-ops if the vector store or embedding adapter isn't configured —
+        these are Phase 1a additive features and the mail-sync path must
+        keep working even when Qdrant is unreachable.
+        """
+        if self._vector_store is None or self._embedding_adapter is None:
+            return
+
+        try:
+            from src.modules.ai.domain.embedding import ChunkEmbedding
+
+            # A single whole-message embedding is sufficient for Phase 1a;
+            # chunk-level splitting is a Phase 1b concern.
+            body = (mail.subject or "") + "\n\n" + (getattr(mail, "body_text", "") or "")
+            if not body.strip():
+                return
+            vector = await self._embedding_adapter.embed(body)
+            chunk = ChunkEmbedding(
+                chunk_id=f"{mail.id}:0",
+                account_id=mail.account_id,
+                mail_id=mail.id,
+                text=body[:4000],
+                vector=vector,
+                metadata={"source_mail_id": mail.id},
+            )
+            await self._vector_store.upsert_chunks(mail.account_id, [chunk])
+            log.info("sync_message.embedding_upserted", mail_id=mail.id)
+        except Exception as exc:  # noqa: BLE001
+            # Best-effort: log and continue. Sync must not fail because
+            # embedding failed — OpenSearch still provides full-text retrieval.
+            log.warn(
+                "sync_message.embedding_skipped",
+                mail_id=mail.id,
+                error=str(exc),
+            )

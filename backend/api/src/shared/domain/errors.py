@@ -107,3 +107,21 @@ class NotFoundError(AppError):
 
     def __init__(self, message: str = "Not found"):
         super().__init__(message)
+
+
+# ── AI / Vector store errors ─────────────────────────────────────────────────
+
+
+class AccountIsolationError(AppError):
+    """D16 physical guard violation.
+
+    Raised when code attempts to cross an account-isolation boundary — e.g.
+    upserting a chunk whose `account_id` does not match the target collection.
+    This is a server-side bug, never a client error, so it surfaces as 500.
+    """
+
+    code = "ACCOUNT_ISOLATION_VIOLATION"
+    status_code = 500
+
+    def __init__(self, message: str = "Account isolation boundary violated"):
+        super().__init__(message)

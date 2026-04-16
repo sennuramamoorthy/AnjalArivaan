@@ -1,6 +1,43 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Optional
+
+
+@dataclass
+class NewMailEvent:
+    """
+    Event emitted by the mail sync service when a new message arrives.
+
+    Consumed by :class:`MailEventHandler` which evaluates urgency and
+    dispatches WhatsApp + line-manager-forward side effects.
+
+    NOTE on D16 (per-account isolation): when ``handle_new_mail`` is invoked
+    from an HTTP context, the caller MUST verify ``account_id`` belongs to
+    ``user_id`` before enqueueing; background outbox consumers can trust the
+    producer (mail sync) because it already joined on linked_account.
+    """
+
+    account_id: str
+    user_id: str
+    message_id: str
+    from_address: str = ""
+    subject: str = ""
+    body_text: str = ""
+    received_at: Optional[str] = None
+    trace_id: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "account_id": self.account_id,
+            "user_id": self.user_id,
+            "message_id": self.message_id,
+            "from_address": self.from_address,
+            "subject": self.subject,
+            "body_text": self.body_text,
+            "received_at": self.received_at,
+            "trace_id": self.trace_id,
+        }
 
 
 @dataclass

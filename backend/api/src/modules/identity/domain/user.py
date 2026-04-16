@@ -36,6 +36,10 @@ class User:
     designation: Optional[str] = None
     department: Optional[str] = None
     responsibilities: Optional[str] = None
+    # In-memory only for Phase 1a — not persisted to DB yet.
+    # Used by notification.MailEventHandler to decide who to forward urgent
+    # government mail to. Resolved via user_repo at event time.
+    line_manager_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

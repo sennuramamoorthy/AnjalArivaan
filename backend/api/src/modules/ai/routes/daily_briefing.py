@@ -1,5 +1,7 @@
+import asyncio
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
@@ -59,6 +61,96 @@ async def daily_briefing(body: DailyBriefingHttpRequest, request: Request) -> di
     }
 
 
+async def _load_meetings(
+    calendar_service,
+    *,
+    account_id: str,
+    user_id: str,
+    today: date,
+    logger,
+    trace_id: str,
+) -> list[dict]:
+    """Pull today's events through the ICalendarService port.
+
+    Returns [] and logs a warn if no adapter is registered; this keeps the
+    briefing serviceable while Google Calendar wiring is still in flight.
+    """
+    if calendar_service is None:
+        if logger is not None:
+            logger.warn(
+                "daily_briefing.calendar_service_unavailable",
+                trace_id=trace_id,
+                account_id=account_id,
+            )
+        return []
+    try:
+        events = await calendar_service.list_events_for_day(
+            account_id, user_id, today
+        )
+    except Exception as e:
+        if logger is not None:
+            logger.error(
+                "daily_briefing.calendar_fetch_failed",
+                trace_id=trace_id,
+                account_id=account_id,
+                error=e,
+            )
+        return []
+
+    return [
+        {
+            "id": e.id,
+            "title": e.title,
+            "start": e.start.isoformat() if e.start else None,
+            "end": e.end.isoformat() if e.end else None,
+            "location": e.location,
+            "attendees": list(e.attendees or []),
+        }
+        for e in events
+    ]
+
+
+async def _load_tasks(
+    task_repo,
+    *,
+    user_id: str,
+    logger,
+    trace_id: str,
+) -> list[dict]:
+    """Pull pending tasks through the ITaskRepository port."""
+    if task_repo is None:
+        if logger is not None:
+            logger.warn(
+                "daily_briefing.task_repo_unavailable",
+                trace_id=trace_id,
+                user_id=user_id,
+            )
+        return []
+    try:
+        tasks = await task_repo.list_pending_for_user(user_id)
+    except Exception as e:
+        if logger is not None:
+            logger.error(
+                "daily_briefing.task_fetch_failed",
+                trace_id=trace_id,
+                user_id=user_id,
+                error=e,
+            )
+        return []
+
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "due_at": t.due_at.isoformat() if t.due_at else None,
+            "assigned_to": t.assigned_to,
+            "source_mail_id": t.source_mail_id,
+        }
+        for t in tasks
+    ]
+
+
 @router.get("/briefing/daily")
 async def get_daily_briefing(
     request: Request,
@@ -66,7 +158,8 @@ async def get_daily_briefing(
 ):
     """GET endpoint for the frontend daily briefing page.
 
-    Loads urgent mails from the mail repo, then delegates to the AI orchestrator.
+    Loads urgent mails, today's calendar events, and pending tasks in
+    parallel, then delegates to the AI orchestrator.
     Frontend calls: GET /api/v1/briefing/daily?accountId=...
     """
     trace_id = _trace_id(request)
@@ -91,6 +184,10 @@ async def get_daily_briefing(
             content=error_response("SERVICE_UNAVAILABLE", "AI service not available", trace_id),
         )
 
+    logger = getattr(request.app.state, "logger", None)
+    calendar_service = getattr(request.app.state, "calendar_service", None)
+    task_repo = getattr(request.app.state, "task_repo", None)
+
     # Load urgent mails for context (optional — gracefully degrade if no mail_repo)
     urgent_mails: list[dict] = []
     mail_repo = getattr(request.app.state, "mail_repo", None)
@@ -107,13 +204,46 @@ async def get_daily_briefing(
             for m in msgs
         ]
 
+    # Fan-out calendar + task loads in parallel.
+    today = datetime.now(timezone.utc).date()
+    t0 = time.monotonic()
+    todays_meetings, pending_tasks = await asyncio.gather(
+        _load_meetings(
+            calendar_service,
+            account_id=accountId,
+            user_id=user["id"],
+            today=today,
+            logger=logger,
+            trace_id=trace_id,
+        ),
+        _load_tasks(
+            task_repo,
+            user_id=user["id"],
+            logger=logger,
+            trace_id=trace_id,
+        ),
+    )
+    context_duration_ms = round((time.monotonic() - t0) * 1000, 1)
+
+    if logger is not None:
+        logger.info(
+            "daily_briefing.context_loaded",
+            trace_id=trace_id,
+            account_id=accountId,
+            user_id=user["id"],
+            meeting_count=len(todays_meetings),
+            task_count=len(pending_tasks),
+            urgent_mail_count=len(urgent_mails),
+            duration_ms=context_duration_ms,
+        )
+
     req = DailyBriefingRequest(
         account_id=accountId,
         user_id=user["id"],
         trace_id=trace_id,
         urgent_mails=urgent_mails,
-        todays_meetings=[],  # TODO: wire Google Calendar adapter
-        pending_tasks=[],    # TODO: wire task repo
+        todays_meetings=todays_meetings,
+        pending_tasks=pending_tasks,
     )
 
     response = await orchestrator.daily_briefing(req)

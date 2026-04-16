@@ -1,18 +1,22 @@
 """Account Link routes — Google Workspace OAuth linking flow.
 
-GET  /accounts/linked          — list linked accounts for authenticated user
-POST /accounts/link/initiate   — start OAuth flow
-GET  /accounts/link/callback   — Google redirects here with code + state
-DELETE /accounts/linked/{id}   — revoke a linked account
+GET  /accounts/linked               — list linked accounts for authenticated user
+POST /accounts/link/initiate        — start OAuth flow
+GET  /accounts/link/callback        — Google redirects here with code + state
+POST /accounts/linked/{id}/sync     — trigger a background Gmail sync
+DELETE /accounts/linked/{id}        — revoke a linked account
 """
 
 import asyncio
+import time
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from src.shared.domain.envelope import success_response, error_response
+from src.shared.middleware.account_ownership import require_account_ownership
 
 router = APIRouter()
 
@@ -143,11 +147,25 @@ async def oauth_callback(request: Request, code: str = "", state: str = ""):
             ),
         )
 
+    # D16: provision the per-account Qdrant namespace BEFORE sync kicks off, so
+    # the first sync has somewhere to write embeddings. Never raises — a
+    # Qdrant outage must not block the user's account link.
+    vector_store = getattr(request.app.state, "vector_store", None)
+    logger = getattr(request.app.state, "logger", None)
+    if vector_store is not None:
+        from src.modules.ai.services.account_lifecycle import (
+            ensure_account_vector_namespace,
+        )
+        await ensure_account_vector_namespace(
+            account_id=account.id,
+            vector_store=vector_store,
+            logger=logger,
+        )
+
     # Trigger initial Gmail sync in the background so the user sees mail soon
     # after the redirect lands on /settings. Fire-and-forget — failures are
     # logged but don't block the link response.
     sync_service = getattr(request.app.state, "sync_service", None)
-    logger = getattr(request.app.state, "logger", None)
     if sync_service is not None:
         async def _initial_sync():
             try:
@@ -178,8 +196,18 @@ async def oauth_callback(request: Request, code: str = "", state: str = ""):
 
 
 @router.post("/accounts/linked/{account_id}/sync")
-async def trigger_sync(request: Request, account_id: str):
-    """Manually trigger a Gmail sync for a linked account."""
+async def trigger_sync(
+    request: Request,
+    account_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """Manually trigger a Gmail sync for a linked account.
+
+    The endpoint returns immediately; the actual sync runs as a FastAPI
+    background task so slow Gmail pagination does not hold the client
+    connection. Ownership is enforced via :func:`require_account_ownership`
+    (CLAUDE.md D16 — strict per-account isolation).
+    """
     trace_id = _trace_id(request)
     user = _get_user(request)
     if not user:
@@ -188,9 +216,17 @@ async def trigger_sync(request: Request, account_id: str):
             content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
         )
 
-    link_service = getattr(request.app.state, "account_link_service", None)
+    # D16 enforcement: the ownership check runs BEFORE the sync-service
+    # availability check so we never leak the existence or non-existence
+    # of an account that isn't ours.
+    forbidden = await require_account_ownership(
+        request, account_id, user["id"], trace_id
+    )
+    if forbidden is not None:
+        return forbidden
+
     sync_service = getattr(request.app.state, "sync_service", None)
-    if link_service is None or sync_service is None:
+    if sync_service is None:
         return JSONResponse(
             status_code=503,
             content=error_response(
@@ -198,24 +234,74 @@ async def trigger_sync(request: Request, account_id: str):
             ),
         )
 
-    account = await link_service._repo.find_by_id(account_id)
-    if account is None or account.app_user_id != user["id"]:
-        return JSONResponse(
-            status_code=404,
-            content=error_response("NOT_FOUND", "Account not found", trace_id),
+    # Audit the action (best-effort — a broken audit store must not block).
+    audit_repo = getattr(request.app.state, "audit_repo", None)
+    if audit_repo is not None:
+        try:
+            await audit_repo.log_event(
+                actor=user["id"],
+                action="ACCOUNT_SYNC",
+                target=account_id,
+            )
+        except Exception:
+            pass
+
+    sync_started_at = datetime.now(timezone.utc)
+    started_monotonic = time.monotonic()
+
+    logger = getattr(request.app.state, "logger", None)
+
+    async def _run_sync_in_background() -> None:
+        try:
+            count = await sync_service.sync_account(
+                account_id=account_id,
+                user_id=user["id"],
+                trace_id=trace_id,
+            )
+            if logger:
+                logger.info(
+                    "sync.complete",
+                    service="account-link",
+                    action="sync.complete",
+                    trace_id=trace_id,
+                    account_id=account_id,
+                    user_id=user["id"],
+                    synced_count=count,
+                )
+        except Exception as exc:  # noqa: BLE001
+            if logger:
+                logger.error(
+                    "sync.failed",
+                    service="account-link",
+                    action="sync.failed",
+                    trace_id=trace_id,
+                    account_id=account_id,
+                    user_id=user["id"],
+                    error=str(exc),
+                )
+
+    background_tasks.add_task(_run_sync_in_background)
+
+    duration_ms = round((time.monotonic() - started_monotonic) * 1000, 1)
+    if logger:
+        logger.info(
+            "sync.triggered",
+            service="account-link",
+            action="sync.triggered",
+            trace_id=trace_id,
+            account_id=account_id,
+            user_id=user["id"],
+            duration_ms=duration_ms,
         )
 
-    try:
-        count = await sync_service.sync_account(
-            account_id=account_id, user_id=user["id"], trace_id=trace_id
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=502,
-            content=error_response("SYNC_FAILED", f"Sync failed: {e}", trace_id),
-        )
-
-    return success_response({"syncedCount": count, "accountId": account_id}, trace_id)
+    return success_response(
+        {
+            "success": True,
+            "syncStartedAt": sync_started_at.isoformat(),
+            "traceId": trace_id,
+        },
+        trace_id,
+    )
 
 
 @router.delete("/accounts/linked/{account_id}")

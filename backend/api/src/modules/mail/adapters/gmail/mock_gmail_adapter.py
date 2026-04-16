@@ -22,6 +22,8 @@ class MockGmailAdapter(IGmailAdapter):
         }
         # Map (message_id, attachment_id) → raw bytes
         self.attachment_data: dict[tuple[str, str], bytes] = {}
+        # Captures forward_message() calls for test assertions.
+        self.forwarded: list[dict[str, Any]] = []
 
     async def list_messages(
         self,
@@ -62,3 +64,18 @@ class MockGmailAdapter(IGmailAdapter):
         thread_id: str | None = None,
     ) -> dict[str, Any]:
         return {"id": "mock-sent-1", "threadId": thread_id or "mock-thread-1"}
+
+    async def forward_message(
+        self,
+        account_id: str,
+        message_id: str,
+        to_addresses: list[str],
+    ) -> dict[str, Any]:
+        self.forwarded.append(
+            {
+                "account_id": account_id,
+                "message_id": message_id,
+                "to_addresses": list(to_addresses),
+            }
+        )
+        return {"id": "mock-forwarded-1", "status": "sent"}

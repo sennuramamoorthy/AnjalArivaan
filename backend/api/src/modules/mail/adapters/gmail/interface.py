@@ -40,3 +40,20 @@ class IGmailAdapter(ABC):
         """Send an RFC-2822 message. If thread_id is provided, the message is
         attached to that thread (Gmail's reply semantics)."""
         ...
+
+    @abstractmethod
+    async def forward_message(
+        self,
+        account_id: str,
+        message_id: str,
+        to_addresses: list[str],
+    ) -> dict[str, Any]:
+        """
+        Forward an existing Gmail message (identified by ``message_id`` on the
+        linked account ``account_id``) to ``to_addresses``.
+
+        Implementations resolve the account's Gmail access token via Vault
+        before dispatching; callers do not pass tokens so the adapter is the
+        sole token-handling surface.
+        """
+        ...
