@@ -9,6 +9,23 @@ from src.modules.identity.repositories.user_repository import IUserRepository
 
 
 class PostgresUserRepository(IUserRepository):
+    # Columns the repo will accept in `update(data=...)`. Anything else is
+    # silently dropped. This exists so a route accidentally forwarding
+    # untrusted keys into the repo cannot build arbitrary UPDATE columns.
+    _UPDATABLE_COLUMNS = {
+        "email",
+        "password_hash",
+        "mfa_enabled",
+        "mfa_secret",
+        "phone",
+        "role",
+        "status",
+        "name",
+        "designation",
+        "department",
+        "responsibilities",
+    }
+
     def __init__(self, pool):
         self._pool = pool
 
@@ -23,6 +40,9 @@ class PostgresUserRepository(IUserRepository):
             role=row.get("role", "STAFF"),
             status=row.get("status", "ACTIVE"),
             name=row.get("email"),  # Fallback — real name from employee record
+            designation=row.get("designation"),
+            department=row.get("department"),
+            responsibilities=row.get("responsibilities"),
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
         )
@@ -98,14 +118,15 @@ class PostgresUserRepository(IUserRepository):
             self._pool.putconn(conn)
 
     async def update(self, user_id: str, data: dict[str, Any]) -> Optional[User]:
-        if not data:
+        # Drop any keys outside the whitelist so column identifiers can never
+        # come from untrusted input (defense in depth against SQL injection).
+        safe_data = {k: v for k, v in data.items() if k in self._UPDATABLE_COLUMNS}
+        if not safe_data:
             return await self.find_by_id(user_id)
         set_clauses = []
         values = []
-        for key, value in data.items():
-            # Map Python field names to DB column names
-            col = key
-            set_clauses.append(f"{col} = %s")
+        for key, value in safe_data.items():
+            set_clauses.append(f"{key} = %s")
             values.append(value)
         set_clauses.append("updated_at = %s")
         values.append(datetime.now(timezone.utc))

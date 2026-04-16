@@ -188,6 +188,145 @@ def test_admin_routes_require_admin_role(non_admin_client):
     assert resp.status_code == 403
 
 
+# ── Tests: Create user (POST /admin/users) ────────────────────────────────
+
+
+class _FakeAuthServiceWithRegister(_FakeAdminAuthService):
+    """Fake auth service that also supports register(). Used to test
+    admin create-user validation without touching Postgres."""
+
+    def __init__(self):
+        self._registered: list[dict] = []
+        self._existing_emails: set[str] = set()
+
+    async def register(self, input_data: dict):
+        from src.modules.identity.domain.user import PublicUser
+        from src.shared.domain.errors import UserAlreadyExistsError, ValidationError
+
+        email = input_data.get("email", "")
+        password = input_data.get("password", "")
+        if not email or "@" not in email:
+            raise ValidationError("invalid email")
+        if len(password) < 8:
+            raise ValidationError("password too short")
+        if email in self._existing_emails:
+            raise UserAlreadyExistsError("duplicate")
+
+        self._registered.append(input_data)
+        self._existing_emails.add(email)
+        return PublicUser(
+            id="new-user-id",
+            email=email,
+            mfa_enabled=False,
+            role=input_data.get("role", "STAFF"),
+            status="ACTIVE",
+            name=input_data.get("name"),
+        )
+
+
+@pytest.fixture
+def create_user_app(audit_repo, admin_user_repo):
+    fake_auth = _FakeAuthServiceWithRegister()
+    application = create_app(auth_service=fake_auth)
+    application.state.audit_repo = audit_repo
+    application.state.admin_user_repo = admin_user_repo
+    application.state._fake_auth = fake_auth  # expose for assertions
+    return application
+
+
+@pytest.fixture
+def create_user_client(create_user_app) -> TestClient:
+    return TestClient(create_user_app)
+
+
+def test_create_user_success(create_user_client, audit_repo):
+    resp = create_user_client.post(
+        "/api/v1/admin/users",
+        json={
+            "email": "new@t.ac.in",
+            "password": "password123",
+            "name": "New User",
+            "role": "DEAN",
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["email"] == "new@t.ac.in"
+    assert data["role"] == "DEAN"
+    # Password must never be echoed back
+    assert "password" not in data
+    # Audit event recorded
+    events, _ = __import__("asyncio").run(audit_repo.list_events())
+    assert any(e["action"] == "USER_CREATE" for e in events)
+
+
+def test_create_user_rejects_invalid_role(create_user_client):
+    resp = create_user_client.post(
+        "/api/v1/admin/users",
+        json={
+            "email": "n@t.ac.in",
+            "password": "password123",
+            "name": "Name",
+            "role": "GOD_MODE",
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "INVALID_INPUT"
+
+
+def test_create_user_rejects_weak_password(create_user_client):
+    resp = create_user_client.post(
+        "/api/v1/admin/users",
+        json={"email": "n@t.ac.in", "password": "short", "name": "N", "role": "STAFF"},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 400
+
+
+def test_create_user_409_on_duplicate(create_user_client):
+    payload = {
+        "email": "dup@t.ac.in",
+        "password": "password123",
+        "name": "Dup",
+        "role": "STAFF",
+    }
+    r1 = create_user_client.post("/api/v1/admin/users", json=payload, headers=AUTH_HEADER)
+    assert r1.status_code == 200
+    r2 = create_user_client.post("/api/v1/admin/users", json=payload, headers=AUTH_HEADER)
+    assert r2.status_code == 409
+    assert r2.json()["error"]["code"] == "USER_ALREADY_EXISTS"
+
+
+def test_create_user_does_not_leak_internal_errors(create_user_client, monkeypatch):
+    """Uncaught exceptions inside register() must not surface raw messages."""
+
+    async def boom(_input):
+        raise RuntimeError("database password is hunter2")
+
+    create_user_client.app.state._fake_auth.register = boom
+
+    resp = create_user_client.post(
+        "/api/v1/admin/users",
+        json={"email": "x@t.ac.in", "password": "password123", "name": "X", "role": "STAFF"},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 500
+    body = resp.json()
+    # Error body must not include the raw exception text.
+    assert "hunter2" not in str(body)
+
+
+def test_create_user_requires_admin(non_admin_client):
+    resp = non_admin_client.post(
+        "/api/v1/admin/users",
+        json={"email": "n@t.ac.in", "password": "password123", "name": "N", "role": "STAFF"},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 403
+
+
 # ── Tests: System health ─────────────────────────────────────────────────
 
 

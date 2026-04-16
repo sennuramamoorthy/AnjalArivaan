@@ -187,6 +187,14 @@ def _wire_production(app: FastAPI, settings) -> None:
     else:
         logger.warn("Identity module not fully wired — missing Redis or Postgres")
 
+    # Signature repo — shared by user_routes (CRUD) and send_routes (auto-append).
+    if app.state.db_pool:
+        from src.modules.identity.repositories.postgres_signature_repo import (
+            PostgresSignatureRepository,
+        )
+
+        app.state.signature_repo = PostgresSignatureRepository(app.state.db_pool)
+
     # ── Admin module wiring ────────────────────────────────────────
     try:
         from src.modules.admin.repositories.postgres_audit_repo import PostgresAuditRepository
@@ -271,6 +279,9 @@ def _wire_production(app: FastAPI, settings) -> None:
         )
 
         app.state.mail_repo = mail_repo
+        # Exposed so the send route can build RFC-2822 messages + hit Gmail.
+        app.state.gmail_adapter = gmail_adapter
+        app.state.mail_vault_adapter = vault_adapter
         app.state.sync_service = MailSyncService(
             gmail_adapter=gmail_adapter,
             vault_adapter=vault_adapter,
@@ -305,7 +316,7 @@ def _wire_production(app: FastAPI, settings) -> None:
         llm_adapter = VLLMAdapter(settings, logger=logger)
         vector_store = QdrantAdapter(settings, logger=logger)
         template_store = JinjaTemplateStore()
-        role_repo = PostgresRoleTemplateRepo(settings)
+        role_repo = PostgresRoleTemplateRepo(settings, logger=logger)
         assembler = ContextAssembler(
             role_template_repo=role_repo,
             vector_store=vector_store,
@@ -387,6 +398,10 @@ def _register_routes(app: FastAPI) -> None:
     from src.modules.mail.routes.ai_routes import router as ai_mail_router
 
     app.include_router(ai_mail_router, prefix="/api/v1")
+
+    from src.modules.mail.routes.send_routes import router as mail_send_router
+
+    app.include_router(mail_send_router, prefix="/api/v1")
 
     # AI Orchestrator
     from src.modules.ai.routes.summarize import router as summarize_router

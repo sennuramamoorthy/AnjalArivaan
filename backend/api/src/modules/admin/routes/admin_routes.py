@@ -15,6 +15,10 @@ router = APIRouter()
 
 _ADMIN_ROLES = {"SUPER_ADMIN", "DEPT_ADMIN"}
 
+# Assignable roles for new users. Keep in sync with UserRole in
+# src/modules/identity/domain/user.py.
+_ASSIGNABLE_ROLES = {"SUPER_ADMIN", "DEPT_ADMIN", "VC", "REGISTRAR", "DEAN", "HOD", "STAFF"}
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -187,6 +191,135 @@ async def list_users(
             "page": page,
             "pageSize": pageSize,
             "hasMore": has_more,
+        },
+        trace_id,
+    )
+
+
+@router.post("/admin/users")
+async def create_user(request: Request):
+    """Onboard a new user. Admin supplies email, name, role and an initial
+    password; the user is created ACTIVE and can log in immediately. Writes
+    an audit event. Password is never echoed back in the response.
+    """
+    trace_id = _trace_id(request)
+
+    user = _get_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
+        )
+
+    forbidden = _require_admin(user, trace_id)
+    if forbidden:
+        return forbidden
+
+    auth_service = getattr(request.app.state, "auth_service", None)
+    if auth_service is None:
+        return JSONResponse(
+            status_code=503,
+            content=error_response(
+                "SERVICE_UNAVAILABLE", "Identity service not available", trace_id
+            ),
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("BAD_REQUEST", "Invalid JSON body", trace_id),
+        )
+    if not isinstance(body, dict):
+        body = {}
+
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+    name = (body.get("name") or "").strip()
+    role = (body.get("role") or "STAFF").strip()
+
+    # Shape validation — AuthService.register also validates email/password,
+    # but we catch role + empty fields here so the error stays structured.
+    if not email or "@" not in email:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("INVALID_INPUT", "Valid email is required", trace_id),
+        )
+    if len(password) < 8:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("INVALID_INPUT", "Password must be at least 8 characters", trace_id),
+        )
+    if not name:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("INVALID_INPUT", "Name is required", trace_id),
+        )
+    if role not in _ASSIGNABLE_ROLES:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("INVALID_INPUT", f"Role must be one of {sorted(_ASSIGNABLE_ROLES)}", trace_id),
+        )
+
+    # Map typed service errors to HTTP status codes. Anything else is an
+    # internal error — do NOT surface the raw exception text to the caller.
+    from src.shared.domain.errors import (
+        AppError,
+        UserAlreadyExistsError,
+        ValidationError,
+    )
+
+    try:
+        new_user = await auth_service.register({
+            "email": email,
+            "password": password,
+            "name": name,
+            "role": role,
+        })
+    except UserAlreadyExistsError:
+        return JSONResponse(
+            status_code=409,
+            content=error_response("USER_ALREADY_EXISTS", "A user with this email already exists", trace_id),
+        )
+    except ValidationError as e:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("INVALID_INPUT", str(e), trace_id),
+        )
+    except AppError as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content=error_response(e.code, e.message, trace_id),
+        )
+    except Exception:
+        logger = getattr(request.app.state, "logger", None)
+        if logger is not None:
+            logger.error("admin.create_user failed", trace_id=trace_id)
+        return JSONResponse(
+            status_code=500,
+            content=error_response("INTERNAL_ERROR", "Failed to create user", trace_id),
+        )
+
+    audit_repo = getattr(request.app.state, "audit_repo", None)
+    if audit_repo:
+        await audit_repo.log_event(
+            actor=user["id"],
+            action="USER_CREATE",
+            target=new_user.id,
+            after={"email": new_user.email, "role": role},
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+
+    return success_response(
+        {
+            "id": new_user.id,
+            "email": new_user.email,
+            "name": getattr(new_user, "name", None) or new_user.email.split("@", 1)[0],
+            "role": role,
+            "status": "ACTIVE",
+            "mfaEnabled": False,
         },
         trace_id,
     )

@@ -11,6 +11,10 @@ from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from src.app import create_app
+from src.modules.account_link.domain.linked_account import LinkedAccount
+from src.modules.account_link.repositories.in_memory_linked_account_repo import (
+    InMemoryLinkedAccountRepository,
+)
 from src.modules.ai.domain.task import AITask, AIResponse
 from src.modules.mail.domain.mail_message import MailMessage, UrgencyLevel
 from src.modules.mail.repositories.in_memory_mail_repository import InMemoryMailRepository
@@ -91,16 +95,41 @@ class _FakeOrchestrator:
 AUTH_HEADER = {"Authorization": "Bearer valid-token"}
 
 
-def _create_seeded_app():
-    """Create app with seeded mail repo and mock orchestrator."""
-    repo = InMemoryMailRepository()
+def _make_linked_account(
+    *, id: str = "acc-1", app_user_id: str = "user-1", google_email: str = "a@t.ac.in"
+) -> LinkedAccount:
+    return LinkedAccount(
+        id=id,
+        app_user_id=app_user_id,
+        google_email=google_email,
+        workspace_domain="t.ac.in",
+        scopes=["gmail.modify"],
+        vault_ref="vault/" + id,
+        status="ACTIVE",
+        last_sync_at=None,
+        created_at=datetime(2026, 4, 14, 0, 0, tzinfo=timezone.utc),
+    )
 
-    # Seed thread
+
+def _create_seeded_app():
+    """Create app with seeded mail repo, linked-account repo, and mock orchestrator."""
+    repo = InMemoryMailRepository()
     asyncio.run(_seed_thread(repo))
+
+    linked_repo = InMemoryLinkedAccountRepository()
+    # acc-1 belongs to user-1 (the fake auth user).
+    asyncio.run(linked_repo.save(_make_linked_account()))
+    # acc-other belongs to a different user — used in D16 isolation tests.
+    asyncio.run(
+        linked_repo.save(
+            _make_linked_account(id="acc-other", app_user_id="user-2", google_email="b@t.ac.in")
+        )
+    )
 
     app = create_app(auth_service=_FakeAuthService())
     app.state.mail_repo = repo
     app.state.orchestrator = _FakeOrchestrator()
+    app.state.linked_account_repo = linked_repo
     return app
 
 
@@ -211,6 +240,57 @@ class TestAiDraft:
         resp = client.post(
             "/api/v1/mail/threads/nonexistent/ai-draft",
             params={"accountId": "acc-1"},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 404
+
+
+# ── Tests: D16 per-account isolation ────────────────────────────────────────
+# The authenticated user (user-1) must not be able to operate on acc-other
+# (which belongs to user-2). Applies to ai-summary, ai-draft (existing thread),
+# and ai-draft for new compose (thread_id="new").
+
+
+class TestAccountOwnershipIsolation:
+    def test_summary_rejects_foreign_account(self):
+        app = _create_seeded_app()
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/mail/threads/thread-A/ai-summary",
+            params={"accountId": "acc-other"},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "FORBIDDEN"
+
+    def test_draft_rejects_foreign_account(self):
+        app = _create_seeded_app()
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v1/mail/threads/thread-A/ai-draft",
+            params={"accountId": "acc-other"},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "FORBIDDEN"
+
+    def test_draft_new_compose_rejects_foreign_account(self):
+        app = _create_seeded_app()
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v1/mail/threads/new/ai-draft",
+            params={"accountId": "acc-other"},
+            json={"subject": "hi", "to": "x@y.com", "instructions": "be brief"},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 403
+
+    def test_summary_404_for_unknown_account(self):
+        app = _create_seeded_app()
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/mail/threads/thread-A/ai-summary",
+            params={"accountId": "acc-does-not-exist"},
             headers=AUTH_HEADER,
         )
         assert resp.status_code == 404

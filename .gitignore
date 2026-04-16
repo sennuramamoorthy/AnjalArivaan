@@ -10,3 +10,13 @@ dist
 
 # Local artifacts
 *.docx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+
+# macOS
+.DS_Store

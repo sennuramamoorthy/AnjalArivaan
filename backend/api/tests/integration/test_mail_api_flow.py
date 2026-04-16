@@ -12,6 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.app import create_app
+from src.modules.account_link.domain.linked_account import LinkedAccount
+from src.modules.account_link.repositories.in_memory_linked_account_repo import InMemoryLinkedAccountRepository
 from src.modules.ai.domain.task import AITask, AIResponse
 from src.modules.mail.domain.mail_message import MailMessage, UrgencyLevel
 from src.modules.mail.repositories.in_memory_mail_repository import InMemoryMailRepository
@@ -114,14 +116,33 @@ async def _seed_data(repo: InMemoryMailRepository):
     ))
 
 
+def _seed_linked_accounts(repo: InMemoryLinkedAccountRepository):
+    """Seed linked accounts owned by user-vc-001."""
+    now = datetime(2026, 4, 1, tzinfo=timezone.utc)
+    asyncio.run(repo.save(LinkedAccount(
+        id="acc-1", app_user_id="user-vc-001", google_email="vc@takshashilauniv.ac.in",
+        workspace_domain="takshashilauniv.ac.in", scopes=["gmail.modify"],
+        vault_ref="vault:acc-1", status="ACTIVE", last_sync_at=None, created_at=now,
+    )))
+    asyncio.run(repo.save(LinkedAccount(
+        id="acc-2", app_user_id="user-vc-001", google_email="vc-alt@takshashilauniv.ac.in",
+        workspace_domain="takshashilauniv.ac.in", scopes=["gmail.modify"],
+        vault_ref="vault:acc-2", status="ACTIVE", last_sync_at=None, created_at=now,
+    )))
+
+
 @pytest.fixture
 def seeded_client():
     """Create a fully-wired test app with seeded data."""
     repo = InMemoryMailRepository()
     asyncio.run(_seed_data(repo))
 
+    linked_repo = InMemoryLinkedAccountRepository()
+    _seed_linked_accounts(linked_repo)
+
     app = create_app(auth_service=_FakeAuthService())
     app.state.mail_repo = repo
+    app.state.linked_account_repo = linked_repo
     app.state.orchestrator = _FakeOrchestrator()
     return TestClient(app)
 
