@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { RefreshCw, ExternalLink, Trash2, ChevronDown, ChevronUp, FileText, Mail } from 'lucide-react';
+import { RefreshCw, Send, Trash2, ChevronDown, ChevronUp, FileText, Mail } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ interface DraftReplyPanelProps {
   isLoading: boolean;
   onRegenerate: () => void;
   onDiscard: () => void;
-  gmailComposeUrl?: string;
+  onAccept?: (draftText: string) => void;
 }
 
 export function DraftReplyPanel({
@@ -21,7 +21,7 @@ export function DraftReplyPanel({
   isLoading,
   onRegenerate,
   onDiscard,
-  gmailComposeUrl,
+  onAccept,
 }: DraftReplyPanelProps) {
   const [draftText, setDraftText] = React.useState('');
   const [contextOpen, setContextOpen] = React.useState(false);
@@ -33,8 +33,7 @@ export function DraftReplyPanel({
   }, [draft?.draftText]);
 
   const handleAccept = () => {
-    const url = gmailComposeUrl ?? 'https://mail.google.com/mail/?view=cm';
-    window.open(url, '_blank', 'noopener,noreferrer');
+    onAccept?.(draftText);
   };
 
   return (
@@ -148,11 +147,11 @@ export function DraftReplyPanel({
           onClick={handleAccept}
           disabled={!draftText || isLoading}
         >
-          <ExternalLink size={15} />
-          Accept &amp; Open in Gmail
+          <Send size={15} />
+          Use This Draft
         </Button>
         <p className="mt-2 text-center text-[10px] text-gray-400">
-          Opens Gmail compose with this draft pre-filled
+          Opens the in-app composer with this draft pre-filled
         </p>
       </div>
     </motion.div>

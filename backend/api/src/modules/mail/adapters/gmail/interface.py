@@ -29,3 +29,14 @@ class IGmailAdapter(ABC):
     async def setup_push_notifications(
         self, access_token: str, topic_name: str, label_ids: list[str]
     ) -> dict[str, Any]: ...
+
+    @abstractmethod
+    async def send_message(
+        self,
+        access_token: str,
+        raw_rfc2822: str,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Send an RFC-2822 message. If thread_id is provided, the message is
+        attached to that thread (Gmail's reply semantics)."""
+        ...

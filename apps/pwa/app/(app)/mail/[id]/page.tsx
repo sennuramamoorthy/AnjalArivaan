@@ -18,9 +18,14 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmailThread } from '@/components/mail/email-thread';
 import { AiSummaryPanel } from '@/components/mail/ai-summary-panel';
-import { DraftReplyPanel } from '@/components/mail/draft-reply-panel';
+import {
+  InlineComposer,
+  type InlineComposerInitial,
+} from '@/components/mail/inline-composer';
 import { useUIStore } from '@/store/ui-store';
-import { useThread, useRequestAiDraft, useMarkThreadRead } from '@/lib/hooks/use-mail';
+import { useAuthStore } from '@/store/auth-store';
+import { useThread, useMarkThreadRead } from '@/lib/hooks/use-mail';
+import type { EmailMessage, ComposeMode } from '@/lib/api/mail';
 
 /** Ghost button used in the detail toolbar — icon + label, hover-tinted. */
 function ToolbarButton({
@@ -66,25 +71,100 @@ export default function MailDetailPage() {
   }, [searchParams]);
 
   const { aiPanelOpen, setAiPanelOpen } = useUIStore();
-  const [showDraftPanel, setShowDraftPanel] = React.useState(false);
+  const [composeInitial, setComposeInitial] =
+    React.useState<InlineComposerInitial | null>(null);
+  const currentUserEmail = useAuthStore((s) => s.user?.email?.toLowerCase());
 
   const { data: thread, isLoading, isError } = useThread(threadId);
-  const { mutate: requestDraft, data: draftData, isPending: draftLoading } = useRequestAiDraft(threadId);
   const { mutate: markThreadRead } = useMarkThreadRead();
 
-  // Mark as read on mount — Gmail-style: opening the thread marks every
-  // message in it read, across whichever folder the user came from.
+  // Mark as read once the thread has loaded — waiting for `thread` ensures
+  // the auth store has already been hydrated and `accountId` is available,
+  // otherwise the backend rejects the request with a 400.
   React.useEffect(() => {
-    if (threadId) {
+    if (threadId && thread) {
       markThreadRead(threadId);
     }
-  }, [threadId, markThreadRead]);
+  }, [threadId, thread, markThreadRead]);
 
+  /**
+   * "Draft Reply" from the AI Summary panel — open the inline composer in
+   * reply mode so the user can immediately trigger AI draft (with optional
+   * context) and send from the same place.
+   */
   const handleDraftReply = () => {
-    setShowDraftPanel(true);
     setAiPanelOpen(false);
-    requestDraft();
+    openCompose('reply');
   };
+
+  /**
+   * Build the initial compose state for Reply / Reply All / Forward.
+   *
+   * - Reply:     to = original sender only
+   * - Reply all: to = original sender; cc = (original to + cc) minus self + sender
+   * - Forward:   to = empty; subject "Fwd:"; body quotes the original
+   */
+  const openCompose = React.useCallback(
+    (mode: ComposeMode) => {
+      if (!thread) return;
+      const messages = thread.messages;
+      const last: EmailMessage | undefined = messages[messages.length - 1];
+      if (!last) return;
+
+      const senderEmail = last.from.email;
+      const originalTo = (last.to ?? []).map((p) => p.email).filter(Boolean);
+      const originalCc = (last.cc ?? []).map((p) => p.email).filter(Boolean);
+
+      const isSelf = (addr: string) =>
+        currentUserEmail && addr.toLowerCase() === currentUserEmail;
+
+      const dedupedCc = Array.from(
+        new Set([...originalTo, ...originalCc].filter((a) => a && a !== senderEmail && !isSelf(a))),
+      );
+
+      const baseSubject = thread.subject || last.subject || '';
+      const stripRe = (s: string) => s.replace(/^(re:|fwd?:)\s*/i, '');
+      const formattedDate = new Date(last.receivedAt).toLocaleString();
+      const quoted =
+        `\n\n\nOn ${formattedDate}, ${last.from.name || last.from.email} wrote:\n> ` +
+        (last.bodyText || '').split('\n').join('\n> ');
+
+      let to: string[] = [];
+      let cc: string[] = [];
+      let subject = baseSubject;
+      let body = '';
+
+      if (mode === 'reply') {
+        to = [senderEmail];
+        subject = baseSubject.toLowerCase().startsWith('re:')
+          ? baseSubject
+          : `Re: ${stripRe(baseSubject)}`;
+        body = quoted;
+      } else if (mode === 'replyAll') {
+        to = [senderEmail];
+        cc = dedupedCc;
+        subject = baseSubject.toLowerCase().startsWith('re:')
+          ? baseSubject
+          : `Re: ${stripRe(baseSubject)}`;
+        body = quoted;
+      } else if (mode === 'forward') {
+        to = [];
+        subject = baseSubject.toLowerCase().startsWith('fwd:')
+          ? baseSubject
+          : `Fwd: ${stripRe(baseSubject)}`;
+        body =
+          `\n\n---------- Forwarded message ----------\n` +
+          `From: ${last.from.name || ''} <${last.from.email}>\n` +
+          `Date: ${formattedDate}\n` +
+          `Subject: ${last.subject}\n` +
+          `To: ${originalTo.join(', ')}\n\n` +
+          (last.bodyText || '');
+      }
+
+      setComposeInitial({ mode, to, cc, subject, body });
+    },
+    [thread, currentUserEmail],
+  );
 
   return (
     <div className="relative flex h-full flex-col">
@@ -107,9 +187,11 @@ export default function MailDetailPage() {
         {/* Primary action */}
         <button
           type="button"
+          onClick={() => openCompose('reply')}
+          disabled={!thread}
           className={cn(
             'flex items-center gap-1.5 rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white',
-            'hover:bg-primary-700 transition-colors',
+            'hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1'
           )}
         >
@@ -117,8 +199,8 @@ export default function MailDetailPage() {
           Reply
         </button>
 
-        <ToolbarButton icon={ReplyAll} label="Reply All" />
-        <ToolbarButton icon={Forward} label="Forward" />
+        <ToolbarButton icon={ReplyAll} label="Reply All" onClick={() => openCompose('replyAll')} />
+        <ToolbarButton icon={Forward} label="Forward" onClick={() => openCompose('forward')} />
 
         <ToolbarDivider />
 
@@ -151,12 +233,7 @@ export default function MailDetailPage() {
       </div>
 
       {/* Content area — scrolls inside the pane */}
-      <div
-        className={cn(
-          'flex-1 overflow-y-auto transition-all duration-300',
-          aiPanelOpen ? 'lg:mr-80' : ''
-        )}
-      >
+      <div className="flex-1 overflow-y-auto">
         {/* ~90% of pane width, with comfortable side padding */}
         <div className="w-full px-4 py-6 sm:px-6">
           {isLoading ? (
@@ -191,26 +268,24 @@ export default function MailDetailPage() {
             </div>
           ) : thread ? (
             <>
+              {/* Inline AI Summary — rendered above the thread when toggled on */}
+              <AiSummaryPanel threadId={threadId} onDraftReply={handleDraftReply} />
+
               <EmailThread thread={thread} />
 
-              {/* AI Draft Panel */}
-              {showDraftPanel && (
-                <div className="mt-6">
-                  <DraftReplyPanel
-                    draft={draftData ?? null}
-                    isLoading={draftLoading}
-                    onRegenerate={() => requestDraft()}
-                    onDiscard={() => setShowDraftPanel(false)}
-                  />
-                </div>
+              {/* Inline composer — rendered in the same right pane, below the
+                  thread. Hosts the AI Draft action with optional context. */}
+              {composeInitial && (
+                <InlineComposer
+                  threadId={threadId}
+                  initial={composeInitial}
+                  onClose={() => setComposeInitial(null)}
+                />
               )}
             </>
           ) : null}
         </div>
       </div>
-
-      {/* AI Summary Panel — slides in from right */}
-      <AiSummaryPanel threadId={threadId} onDraftReply={handleDraftReply} />
     </div>
   );
 }

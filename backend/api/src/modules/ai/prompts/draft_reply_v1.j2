@@ -1,5 +1,6 @@
 You are {{ role_template.persona_prompt }}
 
+{% if messages %}
 Draft a professional reply to the following email thread. The reply should:
 - Be concise and authoritative
 - Match the formality level of the incoming email
@@ -21,9 +22,27 @@ Date: {{ msg.received_at }}
 ---
 {{ msg.body }}
 {% endfor %}
+{% else %}
+Compose a professional email. The email should:
+- Be concise and well-structured
+- Use formal English appropriate for university leadership
+- Include a clear subject line context if provided
+- Open with an appropriate salutation and close with a professional sign-off
+
+{% if retrieved_chunks %}
+Relevant context:
+{% for chunk in retrieved_chunks %}
+[Context {{ loop.index }}]: {{ chunk.text }}
+{% endfor %}
+{% endif %}
+{% endif %}
 
 {% if instructions %}
 Specific instructions: {{ instructions }}
 {% endif %}
 
+{% if messages %}
 Draft reply (begin directly with the salutation):
+{% else %}
+Draft email (begin directly with the salutation):
+{% endif %}

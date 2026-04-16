@@ -93,7 +93,9 @@ services:
       VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-anjal-vault-dev-root}
       MINIO_ENDPOINT: minio:9000
       QDRANT_URL: http://qdrant:6333
-      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://host.docker.internal:8000}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://host.docker.internal:11434}
+      VLLM_MODEL_ID: ${VLLM_MODEL_ID:-anjalarivaan-assistant}
+      VLLM_TIMEOUT_SECONDS: ${VLLM_TIMEOUT_SECONDS:-180}
       JWT_PRIVATE_KEY_PATH: ./keys/jwt_private.pem
       JWT_PUBLIC_KEY_PATH: ./keys/jwt_public.pem
       JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-900}

@@ -33,6 +33,9 @@ class User:
     role: str = UserRole.STAFF
     status: str = UserStatus.ACTIVE
     name: Optional[str] = None
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    responsibilities: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -47,5 +50,8 @@ class PublicUser:
     status: str
     name: Optional[str] = None
     phone: Optional[str] = None
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    responsibilities: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

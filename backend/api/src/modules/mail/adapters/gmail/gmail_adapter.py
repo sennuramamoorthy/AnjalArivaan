@@ -95,6 +95,31 @@ class GmailAdapter(IGmailAdapter):
                 resp.raise_for_status()
                 return resp.json()
 
+    async def send_message(
+        self,
+        access_token: str,
+        raw_rfc2822: str,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        # Gmail's send endpoint expects the raw RFC-2822 message base64url-encoded.
+        raw_b64 = base64.urlsafe_b64encode(raw_rfc2822.encode("utf-8")).decode("ascii").rstrip("=")
+        payload: dict[str, Any] = {"raw": raw_b64}
+        if thread_id:
+            payload["threadId"] = thread_id
+
+        with self._logger.timed("gmail.send_message", thread_id=thread_id or ""):
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{_GMAIL_BASE}/messages/send",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                resp.raise_for_status()
+                return resp.json()
+
     async def setup_push_notifications(
         self, access_token: str, topic_name: str, label_ids: list[str]
     ) -> dict[str, Any]:

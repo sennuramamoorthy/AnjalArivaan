@@ -62,7 +62,15 @@ export function useRequestAiDraft(threadId: string) {
   const queryClient = useQueryClient();
   const accountId = useEffectiveAccountId();
   return useMutation({
-    mutationFn: () => mailApi.requestAiDraft(threadId, accountId),
+    mutationFn: (args?: string | { instructions?: string; subject?: string; to?: string }) => {
+      if (typeof args === 'string' || args === undefined) {
+        return mailApi.requestAiDraft(threadId, accountId, args);
+      }
+      return mailApi.requestAiDraft(threadId, accountId, args.instructions, {
+        subject: args.subject,
+        to: args.to,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: mailKeys.thread(threadId) });
     },
@@ -88,10 +96,31 @@ export function useMarkThreadRead() {
   const queryClient = useQueryClient();
   const accountId = useEffectiveAccountId();
   return useMutation({
-    mutationFn: (threadId: string) => mailApi.markThreadRead(threadId, accountId),
+    mutationFn: (threadId: string) => {
+      // The backend rejects the request without accountId. Callers fire
+      // this on mount, when the auth store is still hydrating — swallow
+      // the no-op quietly instead of producing a 400.
+      if (!accountId) {
+        return Promise.resolve({ success: true, updated: 0 });
+      }
+      return mailApi.markThreadRead(threadId, accountId);
+    },
     onSuccess: (_data, threadId) => {
       queryClient.invalidateQueries({ queryKey: mailKeys.lists() });
       queryClient.invalidateQueries({ queryKey: mailKeys.thread(threadId) });
+    },
+  });
+}
+
+export function useSendReply(threadId: string) {
+  const queryClient = useQueryClient();
+  const accountId = useEffectiveAccountId();
+  return useMutation({
+    mutationFn: (payload: mailApi.SendReplyPayload) =>
+      mailApi.sendReply(threadId, payload, accountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: mailKeys.thread(threadId) });
+      queryClient.invalidateQueries({ queryKey: mailKeys.lists() });
     },
   });
 }

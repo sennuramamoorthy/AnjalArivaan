@@ -3,10 +3,8 @@
 import * as React from 'react';
 import { X, Sparkles, MessageSquarePlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Separator } from '@/components/ui/separator';
 import { useAiSummary } from '@/lib/hooks/use-mail';
 import { useUIStore } from '@/store/ui-store';
 
@@ -15,91 +13,72 @@ interface AiSummaryPanelProps {
   onDraftReply: () => void;
 }
 
+/**
+ * Inline AI Summary card, rendered above the email thread when toggled on.
+ * Previously a fixed slide-in aside on the right; moved inline per user
+ * preference so the summary sits directly above the message content.
+ */
 export function AiSummaryPanel({ threadId, onDraftReply }: AiSummaryPanelProps) {
   const { aiPanelOpen, setAiPanelOpen } = useUIStore();
   const { data: summary, isLoading } = useAiSummary(threadId);
 
   return (
-    <AnimatePresence>
+    <AnimatePresence initial={false}>
       {aiPanelOpen && (
-        <>
-          {/* Mobile overlay backdrop */}
-          <motion.div
-            key="backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/40 lg:hidden"
-            onClick={() => setAiPanelOpen(false)}
-            aria-hidden
-          />
-
-          {/* Panel */}
-          <motion.aside
-            key="panel"
-            initial={{ x: '100%', opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: '100%', opacity: 0 }}
-            transition={{ type: 'tween', duration: 0.3, ease: 'easeOut' }}
-            className={cn(
-              'fixed inset-y-0 right-0 z-50 w-full max-w-sm',
-              'flex flex-col border-l border-gray-200 bg-white shadow-xl',
-              'dark:border-gray-700 dark:bg-gray-900',
-              // Desktop: positioned relative to content
-              'lg:fixed lg:inset-y-0 lg:right-0 lg:z-30'
-            )}
-            aria-label="AI Summary"
-          >
+        <motion.section
+          key="ai-summary-inline"
+          initial={{ opacity: 0, height: 0, y: -8 }}
+          animate={{ opacity: 1, height: 'auto', y: 0 }}
+          exit={{ opacity: 0, height: 0, y: -8 }}
+          transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
+          className="mb-4 overflow-hidden"
+          aria-label="AI Summary"
+        >
+          <div className="rounded-xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-900/50 dark:bg-primary-950/20">
             {/* Header */}
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-700">
+            <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-900/40">
                   <Sparkles size={14} className="text-primary-600 dark:text-primary-400" />
                 </div>
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">AI Summary</h2>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  AI Summary
+                </h2>
               </div>
               <button
                 onClick={() => setAiPanelOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Close AI panel"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                aria-label="Close AI summary"
               >
-                <X size={16} />
+                <X size={14} />
               </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="space-y-3">
               {isLoading || !summary ? (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <Skeleton className="h-4 w-3/4" />
                   <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-full" />
                   <Skeleton className="h-4 w-5/6" />
-                  <Skeleton className="h-4 w-2/3" />
-                  <Separator className="my-2" />
-                  <Skeleton className="h-3 w-1/2" />
-                  <Skeleton className="h-3 w-full" />
-                  <Skeleton className="h-3 w-4/5" />
                 </div>
               ) : (
                 <>
-                  <div>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                      Summary
-                    </h3>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                      {summary.summary}
-                    </p>
-                  </div>
+                  <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                    {summary.summary}
+                  </p>
 
                   {summary.keyPoints.length > 0 && (
                     <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
                         Key Points
                       </h3>
-                      <ul className="space-y-1.5">
+                      <ul className="space-y-1">
                         {summary.keyPoints.map((point, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                          <li
+                            key={i}
+                            className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300"
+                          >
                             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-500" />
                             {point}
                           </li>
@@ -110,10 +89,12 @@ export function AiSummaryPanel({ threadId, onDraftReply }: AiSummaryPanelProps) 
 
                   {summary.urgencyReason && (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
-                      <p className="text-xs font-semibold text-red-700 dark:text-red-400 mb-1">
+                      <p className="mb-1 text-xs font-semibold text-red-700 dark:text-red-400">
                         Why this is urgent
                       </p>
-                      <p className="text-xs text-red-600 dark:text-red-400">{summary.urgencyReason}</p>
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        {summary.urgencyReason}
+                      </p>
                     </div>
                   )}
                 </>
@@ -121,22 +102,18 @@ export function AiSummaryPanel({ threadId, onDraftReply }: AiSummaryPanelProps) 
             </div>
 
             {/* Footer */}
-            <div className="shrink-0 border-t border-gray-200 p-4 dark:border-gray-700 space-y-3">
-              <Button className="w-full" onClick={onDraftReply} disabled={isLoading || !summary}>
-                <MessageSquarePlus size={15} />
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-primary-200/60 pt-3 dark:border-primary-900/40">
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                Generated by <span className="font-medium">Takshashila LLM</span>
+                {summary && <> · {summary.retrievedChunkCount} context chunks</>}
+              </p>
+              <Button size="sm" onClick={onDraftReply} disabled={isLoading || !summary}>
+                <MessageSquarePlus size={14} />
                 Draft Reply
               </Button>
-
-              {/* Model attribution */}
-              <p className="text-center text-[10px] text-gray-400 dark:text-gray-500">
-                Generated by <span className="font-medium">Llama 3.1</span> · Takshashila LLM
-                {summary && (
-                  <> · {summary.retrievedChunkCount} context chunks</>
-                )}
-              </p>
             </div>
-          </motion.aside>
-        </>
+          </div>
+        </motion.section>
       )}
     </AnimatePresence>
   );

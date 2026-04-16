@@ -47,7 +47,7 @@ class PostgresAdminUserRepository(IAdminUserRepository):
                     offset = (page - 1) * page_size
                     cur.execute(
                         f"""
-                        SELECT id, email, name, role, status, mfa_enabled, created_at
+                        SELECT id, email, role, status, mfa_enabled, created_at
                         FROM app_users {where}
                         ORDER BY created_at DESC
                         LIMIT %s OFFSET %s
@@ -55,9 +55,13 @@ class PostgresAdminUserRepository(IAdminUserRepository):
                         params + [page_size, offset],
                     )
                     rows = cur.fetchall()
-                    cols = ["id", "email", "name", "role", "status", "mfaEnabled", "createdAt"]
+                    cols = ["id", "email", "role", "status", "mfaEnabled", "createdAt"]
                     users = [dict(zip(cols, r)) for r in rows]
                     for u in users:
+                        # app_users has no `name` column — derive a display
+                        # name from the email local-part so the admin UI has
+                        # something to render.
+                        u["name"] = (u.get("email") or "").split("@", 1)[0]
                         if u.get("createdAt"):
                             u["createdAt"] = u["createdAt"].isoformat()
                     return users, total
@@ -75,7 +79,7 @@ class PostgresAdminUserRepository(IAdminUserRepository):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, email, name, role, status, mfa_enabled, created_at
+                        SELECT id, email, role, status, mfa_enabled, created_at
                         FROM app_users WHERE id = %s
                         """,
                         (user_id,),
@@ -83,8 +87,9 @@ class PostgresAdminUserRepository(IAdminUserRepository):
                     row = cur.fetchone()
                     if row is None:
                         return None
-                    cols = ["id", "email", "name", "role", "status", "mfaEnabled", "createdAt"]
+                    cols = ["id", "email", "role", "status", "mfaEnabled", "createdAt"]
                     user = dict(zip(cols, row))
+                    user["name"] = (user.get("email") or "").split("@", 1)[0]
                     if user.get("createdAt"):
                         user["createdAt"] = user["createdAt"].isoformat()
                     return user

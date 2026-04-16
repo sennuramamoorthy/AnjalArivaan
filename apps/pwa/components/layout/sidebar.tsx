@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import {
   Inbox,
   Star,
@@ -20,6 +20,7 @@ import {
   Sparkles,
   LayoutDashboard,
   Settings,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui-store';
@@ -88,6 +89,9 @@ const TOP_NAV: NavItem[] = [
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 
+const ADMIN_NAV: NavItem = { label: 'Admin', href: '/admin', icon: ShieldCheck };
+const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'DEPT_ADMIN']);
+
 interface SidebarItemProps {
   item: NavItem;
   isActive: boolean;
@@ -150,6 +154,7 @@ function SidebarItem({ item, isActive, collapsed }: SidebarItemProps) {
 export function Sidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const currentFilter = searchParams.get('filter');
   const currentFolder = searchParams.get('folder') ?? 'inbox';
   const { sidebarOpen, toggleSidebar } = useUIStore();
@@ -205,6 +210,7 @@ export function Sidebar() {
       <div className={cn(collapsed ? 'p-2' : 'p-3')}>
         <button
           type="button"
+          onClick={() => router.push('/mail/compose')}
           className={cn(
             'flex w-full items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2'
@@ -289,6 +295,15 @@ export function Sidebar() {
                 <SidebarItem item={item} isActive={isItemActive(item)} collapsed={collapsed} />
               </li>
             ))}
+            {user && ADMIN_ROLES.has(user.role) && (
+              <li>
+                <SidebarItem
+                  item={ADMIN_NAV}
+                  isActive={pathname.startsWith('/admin')}
+                  collapsed={collapsed}
+                />
+              </li>
+            )}
           </ul>
         </div>
       </nav>

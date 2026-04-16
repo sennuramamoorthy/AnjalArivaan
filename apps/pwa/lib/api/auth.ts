@@ -142,3 +142,74 @@ export function syncLinkedAccount(accountId: string) {
     `/api/v1/accounts/linked/${accountId}/sync`
   );
 }
+
+// ── User Profile ────────────────────────────────────────────────────────────
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  mfaEnabled: boolean;
+  name: string | null;
+  designation: string | null;
+  department: string | null;
+  responsibilities: string | null;
+}
+
+export interface UpdateProfilePayload {
+  designation?: string;
+  department?: string;
+  responsibilities?: string;
+  phone?: string;
+}
+
+export function getProfile() {
+  return apiClient.get<UserProfile>('/api/v1/users/me');
+}
+
+export function updateProfile(data: UpdateProfilePayload) {
+  return apiClient.patch<UserProfile>('/api/v1/users/me', data);
+}
+
+// ── Signatures ──────────────────────────────────────────────────────────────
+
+export interface Signature {
+  id: string;
+  accountId: string;
+  name: string;
+  htmlTemplate: string;
+  isDefault: boolean;
+  createdAt: string | null;
+}
+
+export interface CreateSignaturePayload {
+  accountId: string;
+  name: string;
+  htmlTemplate: string;
+  isDefault?: boolean;
+}
+
+export interface UpdateSignaturePayload {
+  name?: string;
+  htmlTemplate?: string;
+  isDefault?: boolean;
+}
+
+export function listSignatures(accountId?: string) {
+  return apiClient.get<Signature[]>('/api/v1/users/me/signatures', {
+    params: accountId ? { accountId } : undefined,
+  });
+}
+
+export function createSignature(data: CreateSignaturePayload) {
+  return apiClient.post<Signature>('/api/v1/users/me/signatures', data);
+}
+
+export function updateSignature(sigId: string, data: UpdateSignaturePayload) {
+  return apiClient.put<Signature>(`/api/v1/users/me/signatures/${sigId}`, data);
+}
+
+export function deleteSignature(sigId: string) {
+  return apiClient.delete<{ deleted: boolean }>(`/api/v1/users/me/signatures/${sigId}`);
+}

@@ -1,67 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { User, Shield, Bell } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/store/auth-store';
-import { Avatar } from '@/components/ui/avatar';
+import { Shield, Bell } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { ProfileEditor } from '@/components/settings/profile-editor';
+import { SignatureEditor } from '@/components/settings/signature-editor';
 import { LinkedAccountsCard } from '@/components/settings/linked-accounts-card';
-
-function ProfileSection() {
-  const { user } = useAuthStore();
-
-  if (!user) return null;
-
-  return (
-    <section
-      className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
-      aria-labelledby="profile-heading"
-    >
-      <h2
-        id="profile-heading"
-        className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4"
-      >
-        Profile
-      </h2>
-
-      <div className="flex items-start gap-4">
-        <Avatar
-          src={user.avatarUrl}
-          name={user.name}
-          size="lg"
-          className="shrink-0"
-        />
-        <div className="min-w-0 flex-1 space-y-3">
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              Name
-            </label>
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              {user.name}
-            </p>
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              Email
-            </label>
-            <p className="text-sm text-gray-700 dark:text-gray-300">
-              {user.email}
-            </p>
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              Role
-            </label>
-            <div className="mt-0.5">
-              <Badge variant="default">{user.role}</Badge>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 function SecuritySection() {
   return (
@@ -121,12 +65,13 @@ export default function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">Settings</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-          Manage your profile, accounts, and preferences
+          Manage your profile, signatures, accounts, and preferences
         </p>
       </div>
 
       <div className="space-y-6">
-        <ProfileSection />
+        <ProfileEditor />
+        <SignatureEditor />
         <LinkedAccountsCard />
         <SecuritySection />
       </div>

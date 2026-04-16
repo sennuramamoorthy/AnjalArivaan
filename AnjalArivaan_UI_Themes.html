@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AnjalArivaan — UI Theme Preview</title>
+<style>
+  /* ============================================
+     THEME TOKENS
+     Each theme defines the same token set so
+     switching themes swaps the entire look.
+     ============================================ */
+
+  :root {
+    /* Default = Classic Light */
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --surface-2: #f0f3f8;
+    --surface-hover: #eef2f8;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-subtle: #94a3b8;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-soft: #dbeafe;
+    --accent: #0ea5e9;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --tag-bg: #e0e7ff;
+    --tag-text: #3730a3;
+    --unread-dot: #2563eb;
+    --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.08), 0 4px 10px rgba(15, 23, 42, 0.04);
+    --radius: 10px;
+    --radius-sm: 6px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+
+  /* THEME 1: Classic Light (Professional Blue) */
+  [data-theme="classic"] {
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --surface-2: #f0f3f8;
+    --surface-hover: #eef2f8;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-subtle: #94a3b8;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-soft: #dbeafe;
+    --accent: #0ea5e9;
+    --tag-bg: #e0e7ff;
+    --tag-text: #3730a3;
+    --unread-dot: #2563eb;
+  }
+
+  /* THEME 2: Midnight Dark */
+  [data-theme="midnight"] {
+    --bg: #0b1020;
+    --surface: #131a2e;
+    --surface-2: #1a2238;
+    --surface-hover: #1f2a44;
+    --border: #24304c;
+    --border-strong: #344063;
+    --text: #e6edf7;
+    --text-muted: #94a3b8;
+    --text-subtle: #64748b;
+    --primary: #8b5cf6;
+    --primary-hover: #a78bfa;
+    --primary-soft: #2e2244;
+    --accent: #06b6d4;
+    --tag-bg: #2a1f47;
+    --tag-text: #c4b5fd;
+    --unread-dot: #a78bfa;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  /* THEME 3: Warm Academic (Parchment) */
+  [data-theme="academic"] {
+    --bg: #f5efe4;
+    --surface: #fdfaf2;
+    --surface-2: #f0e8d6;
+    --surface-hover: #ebe2cc;
+    --border: #e0d4b8;
+    --border-strong: #c9b68f;
+    --text: #3d2f1e;
+    --text-muted: #7a6b53;
+    --text-subtle: #a89776;
+    --primary: #8b4513;
+    --primary-hover: #6b3410;
+    --primary-soft: #f0e0c8;
+    --accent: #c2691e;
+    --tag-bg: #e8d8b5;
+    --tag-text: #6b3410;
+    --unread-dot: #8b4513;
+  }
+
+  /* THEME 4: Ocean Depths (Teal) */
+  [data-theme="ocean"] {
+    --bg: #e8f4f8;
+    --surface: #ffffff;
+    --surface-2: #d9ecf2;
+    --surface-hover: #cce4ec;
+    --border: #b8d8e3;
+    --border-strong: #88bccf;
+    --text: #0a3a4a;
+    --text-muted: #4a7a8a;
+    --text-subtle: #7ea0ad;
+    --primary: #0891b2;
+    --primary-hover: #0e7490;
+    --primary-soft: #cffafe;
+    --accent: #14b8a6;
+    --tag-bg: #ccfbf1;
+    --tag-text: #115e59;
+    --unread-dot: #0891b2;
+  }
+
+  /* THEME 5: Forest Sage (Calm Green) */
+  [data-theme="forest"] {
+    --bg: #eef2ec;
+    --surface: #ffffff;
+    --surface-2: #e3eadf;
+    --surface-hover: #d9e3d4;
+    --border: #c9d5c3;
+    --border-strong: #9cb393;
+    --text: #1a2e1a;
+    --text-muted: #5a6f57;
+    --text-subtle: #8a9c87;
+    --primary: #16a34a;
+    --primary-hover: #15803d;
+    --primary-soft: #dcfce7;
+    --accent: #84cc16;
+    --tag-bg: #d9f0d0;
+    --tag-text: #2d5016;
+    --unread-dot: #16a34a;
+  }
+
+  /* THEME 6: Royal Saffron (Indian Heritage) */
+  [data-theme="saffron"] {
+    --bg: #fdf6ec;
+    --surface: #ffffff;
+    --surface-2: #fbecd4;
+    --surface-hover: #f7e2c0;
+    --border: #f0d4a0;
+    --border-strong: #d9a95c;
+    --text: #2a1a05;
+    --text-muted: #7a5a2a;
+    --text-subtle: #a88a52;
+    --primary: #c2410c;
+    --primary-hover: #9a3412;
+    --primary-soft: #fed7aa;
+    --accent: #d97706;
+    --tag-bg: #fde7c6;
+    --tag-text: #7c2d12;
+    --unread-dot: #c2410c;
+  }
+
+  /* ============================================
+     BASE LAYOUT
+     ============================================ */
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  body {
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* ============================================
+     THEME SWITCHER
+     ============================================ */
+
+  .theme-switcher {
+    max-width: 1400px;
+    margin: 0 auto 24px;
+    padding: 20px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .theme-switcher h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin-right: 8px;
+  }
+
+  .theme-switcher .subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    flex-basis: 100%;
+    margin-top: -8px;
+    margin-bottom: 4px;
+  }
+
+  .theme-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 2px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .theme-btn:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+  }
+
+  .theme-btn.active {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
+
+  .theme-swatch {
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+    width: 38px;
+    height: 18px;
+    border: 1px solid var(--border);
+  }
+
+  .theme-swatch span { flex: 1; height: 100%; }
+
+  /* ============================================
+     APP SHELL — email client layout
+     ============================================ */
+
+  .app {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    display: grid;
+    grid-template-columns: 240px 360px 1fr;
+    height: calc(100vh - 180px);
+    min-height: 680px;
+  }
+
+  /* ============================================
+     SIDEBAR (left)
+     ============================================ */
+
+  .sidebar {
+    background: var(--surface-2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .brand {
+    padding: 20px 20px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    display: grid;
+    place-items: center;
+    color: white;
+    font-weight: 800;
+    font-size: 14px;
+  }
+
+  .brand-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .brand-org {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .compose-btn {
+    margin: 16px;
+    padding: 11px 16px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s;
+  }
+
+  .compose-btn:hover { background: var(--primary-hover); }
+
+  .nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px;
+  }
+
+  .nav-section {
+    margin-top: 16px;
+  }
+
+  .nav-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 0 12px 6px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 2px;
+  }
+
+  .nav-item:hover { background: var(--surface-hover); color: var(--text); }
+
+  .nav-item.active {
+    background: var(--primary-soft);
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .nav-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    opacity: 0.85;
+  }
+
+  .nav-count {
+    margin-left: auto;
+    font-size: 11px;
+    background: var(--surface);
+    color: var(--text-muted);
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  .nav-item.active .nav-count {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+  }
+
+  .tag-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .user-card {
+    border-top: 1px solid var(--border);
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .user-role { font-size: 11px; color: var(--text-muted); }
+
+  /* ============================================
+     EMAIL LIST (middle)
+     ============================================ */
+
+  .list-pane {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .list-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .list-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .list-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .list-count {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+  }
+
+  .search-box input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .search-box input::placeholder { color: var(--text-subtle); }
+
+  .email-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .email-row {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s;
+  }
+
+  .email-row:hover { background: var(--surface-hover); }
+
+  .email-row.unread { background: var(--surface); }
+  .email-row.unread .email-sender,
+  .email-row.unread .email-subject {
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .email-row.selected {
+    background: var(--primary-soft);
+    border-left: 3px solid var(--primary);
+    padding-left: 17px;
+  }
+
+  .email-row.unread::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 22px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--unread-dot);
+  }
+
+  .email-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .email-sender {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .thread-badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-left: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .email-time {
+    font-size: 11px;
+    color: var(--text-subtle);
+    flex-shrink: 0;
+    margin-left: 8px;
+  }
+
+  .email-subject {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .email-preview {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-height: 36px;
+    overflow: hidden;
+  }
+
+  .email-tags {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+
+  .tag {
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+
+  .priority-high {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+  }
+
+  .tag-task {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+  }
+
+  .tag-travel {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+  }
+
+  /* ============================================
+     DETAIL PANE (right)
+     ============================================ */
+
+  .detail-pane {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .detail-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tool-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tool-btn:hover {
+    background: var(--surface-2);
+    color: var(--text);
+    border-color: var(--border);
+  }
+
+  .tool-btn.primary {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+  }
+
+  .tool-btn.primary:hover {
+    background: var(--primary-hover);
+    color: white;
+  }
+
+  .tool-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+
+  .detail-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+  }
+
+  .detail-subject {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+    line-height: 1.3;
+  }
+
+  .thread-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+  }
+
+  .thread-info .dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-subtle);
+  }
+
+  .message-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 14px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .message-head {
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+
+  .avatar-md {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--primary));
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .msg-from { font-size: 13px; font-weight: 600; color: var(--text); }
+  .msg-to { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .msg-time { margin-left: auto; font-size: 11px; color: var(--text-subtle); }
+
+  .message-body {
+    padding: 18px;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .message-body p { margin-bottom: 12px; }
+
+  .message-body .signature {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .ai-insight {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    background: var(--primary-soft);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin: 20px 0;
+  }
+
+  .ai-insight-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  .ai-insight-body {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .extracted-tasks {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .task-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .task-check {
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .task-due {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
+
+  /* responsive fallback */
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 200px 320px 1fr; }
+  }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; }
+    .sidebar, .list-pane { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body data-theme="classic">
+
+  <!-- =========================================
+       THEME SWITCHER
+       ========================================= -->
+  <div class="theme-switcher">
+    <h1>AnjalArivaan — UI Theme Preview</h1>
+    <div class="subtitle">Click a theme to preview it. The whole interface re-skins instantly. Pick the one you want and let me know.</div>
+    <div class="theme-options" id="themeOptions">
+      <button class="theme-btn active" data-set="classic">
+        <span class="theme-swatch">
+          <span style="background:#ffffff"></span>
+          <span style="background:#2563eb"></span>
+          <span style="background:#0ea5e9"></span>
+        </span>
+        Classic Light
+      </button>
+      <button class="theme-btn" data-set="midnight">
+        <span class="theme-swatch">
+          <span style="background:#131a2e"></span>
+          <span style="background:#8b5cf6"></span>
+          <span style="background:#06b6d4"></span>
+        </span>
+        Midnight Dark
+      </button>
+      <button class="theme-btn" data-set="academic">
+        <span class="theme-swatch">
+          <span style="background:#fdfaf2"></span>
+          <span style="background:#8b4513"></span>
+          <span style="background:#c2691e"></span>
+        </span>
+        Warm Academic
+      </button>
+      <button class="theme-btn" data-set="ocean">
+        <span class="theme-swatch">
+          <span style="background:#e8f4f8"></span>
+          <span style="background:#0891b2"></span>
+          <span style="background:#14b8a6"></span>
+        </span>
+        Ocean Depths
+      </button>
+      <button class="theme-btn" data-set="forest">
+        <span class="theme-swatch">
+          <span style="background:#eef2ec"></span>
+          <span style="background:#16a34a"></span>
+          <span style="background:#84cc16"></span>
+        </span>
+        Forest Sage
+      </button>
+      <button class="theme-btn" data-set="saffron">
+        <span class="theme-swatch">
+          <span style="background:#fdf6ec"></span>
+          <span style="background:#c2410c"></span>
+          <span style="background:#d97706"></span>
+        </span>
+        Royal Saffron
+      </button>
+    </div>
+  </div>
+
+  <!-- =========================================
+       APP MOCKUP
+       ========================================= -->
+  <div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">Aa</div>
+        <div>
+          <div class="brand-name">AnjalArivaan</div>
+          <div class="brand-org">Takshashila University</div>
+        </div>
+      </div>
+
+      <button class="compose-btn">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+        Compose
+      </button>
+
+      <div class="nav">
+        <div class="nav-section">
+          <div class="nav-label">Mailbox</div>
+          <div class="nav-item active">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9 6 9-6M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7a2 2 0 012-2h14a2 2 0 012 2"/></svg>
+            Inbox
+            <span class="nav-count">24</span>
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+            Important
+            <span class="nav-count">7</span>
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Sent
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            Drafts
+            <span class="nav-count">3</span>
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            Trash
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">AI-Powered</div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            Tasks
+            <span class="nav-count">12</span>
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3-3 4 4 5-5 6 6M10 8a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            Travel
+            <span class="nav-count">2</span>
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            Calendar
+          </div>
+          <div class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            AI Chat
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">Tags</div>
+          <div class="nav-item">
+            <span class="tag-dot" style="background:#ef4444"></span>
+            Urgent
+          </div>
+          <div class="nav-item">
+            <span class="tag-dot" style="background:#f59e0b"></span>
+            Admissions
+          </div>
+          <div class="nav-item">
+            <span class="tag-dot" style="background:#10b981"></span>
+            Research
+          </div>
+          <div class="nav-item">
+            <span class="tag-dot" style="background:#8b5cf6"></span>
+            IQAC
+          </div>
+        </div>
+      </div>
+
+      <div class="user-card">
+        <div class="avatar">SN</div>
+        <div>
+          <div class="user-name">Dr. Sennu N.</div>
+          <div class="user-role">Dean · Academic Affairs</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Email List -->
+    <section class="list-pane">
+      <div class="list-header">
+        <div class="list-title-row">
+          <div class="list-title">Inbox</div>
+          <div class="list-count">24 unread · 3 threads</div>
+        </div>
+        <div class="search-box">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" placeholder="Search mail, tasks, people..." />
+        </div>
+      </div>
+
+      <div class="email-list">
+        <div class="email-row unread selected">
+          <div class="email-top">
+            <div class="email-sender">Vice Chancellor Office <span class="thread-badge">4</span></div>
+            <div class="email-time">9:42 AM</div>
+          </div>
+          <div class="email-subject">Q2 Academic Review — Final Agenda & Pre-Read</div>
+          <div class="email-preview">Attached please find the final agenda for Monday's academic review. Action items from last quarter require your written response before...</div>
+          <div class="email-tags">
+            <span class="tag priority-high">High Priority</span>
+            <span class="tag tag-task">3 tasks</span>
+            <span class="tag">IQAC</span>
+          </div>
+        </div>
+
+        <div class="email-row unread">
+          <div class="email-top">
+            <div class="email-sender">Registrar — Dr. Kumar <span class="thread-badge">2</span></div>
+            <div class="email-time">8:15 AM</div>
+          </div>
+          <div class="email-subject">Faculty Recruitment Drive 2026 — Approvals Needed</div>
+          <div class="email-preview">Dean, we need your sign-off on the candidate shortlist for the CSE department. The committee has shortlisted 8 candidates from 142...</div>
+          <div class="email-tags">
+            <span class="tag tag-task">2 tasks</span>
+            <span class="tag">Recruitment</span>
+          </div>
+        </div>
+
+        <div class="email-row unread">
+          <div class="email-top">
+            <div class="email-sender">Conference Chair — ICML</div>
+            <div class="email-time">Yesterday</div>
+          </div>
+          <div class="email-subject">Travel Confirmation — Keynote at Bengaluru</div>
+          <div class="email-preview">We're delighted to confirm your keynote on April 18. Flight and hotel booking details below. Please confirm dietary preferences...</div>
+          <div class="email-tags">
+            <span class="tag tag-travel">Travel</span>
+            <span class="tag">Apr 18</span>
+          </div>
+        </div>
+
+        <div class="email-row">
+          <div class="email-top">
+            <div class="email-sender">HR Manager — Priya Nair <span class="thread-badge">6</span></div>
+            <div class="email-time">Yesterday</div>
+          </div>
+          <div class="email-subject">Leave request workflow update — new policy</div>
+          <div class="email-preview">As per recent circular, all leave requests above 5 days now require dean-level approval. We've updated the workflow in the HRMS...</div>
+          <div class="email-tags">
+            <span class="tag">Policy</span>
+          </div>
+        </div>
+
+        <div class="email-row">
+          <div class="email-top">
+            <div class="email-sender">IQAC Coordinator</div>
+            <div class="email-time">Wed</div>
+          </div>
+          <div class="email-subject">NAAC re-accreditation — document checklist</div>
+          <div class="email-preview">Please find attached the consolidated checklist for the upcoming NAAC visit. Your department's inputs are required for sections 2.3 and 4.1...</div>
+          <div class="email-tags">
+            <span class="tag">IQAC</span>
+            <span class="tag tag-task">1 task</span>
+          </div>
+        </div>
+
+        <div class="email-row">
+          <div class="email-top">
+            <div class="email-sender">Finance Officer</div>
+            <div class="email-time">Tue</div>
+          </div>
+          <div class="email-subject">FY26 budget allocation — departmental splits</div>
+          <div class="email-preview">Sharing the proposed budget allocations for FY26. Please review and provide feedback by end of this week...</div>
+          <div class="email-tags">
+            <span class="tag">Finance</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Detail Pane -->
+    <section class="detail-pane">
+      <div class="detail-toolbar">
+        <button class="tool-btn primary">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17l-5-5 5-5M4 12h16"/></svg>
+          Reply
+        </button>
+        <button class="tool-btn">Reply All</button>
+        <button class="tool-btn">Forward</button>
+        <span class="tool-divider"></span>
+        <button class="tool-btn">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+          Mark Done
+        </button>
+        <button class="tool-btn">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+          Archive
+        </button>
+        <span class="tool-divider"></span>
+        <button class="tool-btn" style="margin-left:auto">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        </button>
+      </div>
+
+      <div class="detail-scroll">
+        <div class="detail-subject">Q2 Academic Review — Final Agenda & Pre-Read</div>
+        <div class="thread-info">
+          <span>4 messages</span>
+          <span class="dot"></span>
+          <span>3 participants</span>
+          <span class="dot"></span>
+          <span>Started Apr 7, 2026</span>
+        </div>
+
+        <!-- AI Insight Card -->
+        <div class="ai-insight">
+          <div class="ai-insight-head">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6z"/></svg>
+            AI Summary · 3 action items detected
+          </div>
+          <div class="ai-insight-body">
+            This thread discusses preparation for the Q2 academic review meeting on Monday. The VC's office requires written responses to pending action items from Q1 and confirmation of availability for a pre-meeting briefing.
+          </div>
+          <div class="extracted-tasks">
+            <div class="task-chip">
+              <span class="task-check"></span>
+              Submit written response to Q1 action items
+              <span class="task-due">Due Sun, Apr 12</span>
+            </div>
+            <div class="task-chip">
+              <span class="task-check"></span>
+              Confirm attendance for pre-meeting briefing (Sat 10 AM)
+              <span class="task-due">Due Fri, Apr 10</span>
+            </div>
+            <div class="task-chip">
+              <span class="task-check"></span>
+              Review attached agenda and pre-read document
+              <span class="task-due">Due Sun, Apr 12</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Message Card -->
+        <div class="message-card">
+          <div class="message-head">
+            <div class="avatar-md">VC</div>
+            <div>
+              <div class="msg-from">Vice Chancellor Office &lt;vc.office@takshashila.edu&gt;</div>
+              <div class="msg-to">to Dr. Sennu N., Registrar, IQAC Coordinator</div>
+            </div>
+            <div class="msg-time">Apr 10, 9:42 AM</div>
+          </div>
+          <div class="message-body">
+            <p>Dear Dean Sennu,</p>
+            <p>As discussed, attached please find the <strong>final agenda</strong> for the Q2 Academic Review scheduled for Monday, April 13 at 10:00 AM in the VC's conference room.</p>
+            <p>Three matters require your attention before the meeting:</p>
+            <p><strong>1.</strong> Written response to pending action items from Q1 (items 3.2, 4.1, 5.3 in the attached tracker) — please submit by Sunday evening.<br/>
+               <strong>2.</strong> Confirmation of your availability for a short pre-meeting briefing on Saturday at 10 AM.<br/>
+               <strong>3.</strong> Review of the 12-page pre-read document on NAAC re-accreditation readiness.</p>
+            <p>Please let me know if you need any clarification.</p>
+            <div class="signature">
+              Regards,<br/>
+              Office of the Vice Chancellor<br/>
+              Takshashila University
+            </div>
+          </div>
+        </div>
+
+        <div class="message-card">
+          <div class="message-head">
+            <div class="avatar-md" style="background:linear-gradient(135deg,#10b981,#14b8a6)">SN</div>
+            <div>
+              <div class="msg-from">Dr. Sennu N. &lt;sennu@takshashila.edu&gt;</div>
+              <div class="msg-to">to Vice Chancellor Office, Registrar, IQAC Coordinator</div>
+            </div>
+            <div class="msg-time">Apr 8, 4:20 PM</div>
+          </div>
+          <div class="message-body">
+            <p>Thank you for sharing the preliminary agenda. I'd like to add one item to discussion — the proposal for the new interdisciplinary research lab that was tabled last quarter...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+<script>
+  const body = document.body;
+  const buttons = document.querySelectorAll('.theme-btn');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const theme = btn.getAttribute('data-set');
+      body.setAttribute('data-theme', theme);
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

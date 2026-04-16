@@ -131,10 +131,19 @@ export function getAiSummary(threadId: string, accountId?: string) {
   });
 }
 
-export function requestAiDraft(threadId: string, accountId?: string) {
+export function requestAiDraft(
+  threadId: string,
+  accountId?: string,
+  instructions?: string,
+  context?: { subject?: string; to?: string },
+) {
   return apiClient.post<AiDraft>(
     `/api/v1/mail/threads/${threadId}/ai-draft`,
-    undefined,
+    {
+      instructions: instructions ?? '',
+      ...(context?.subject ? { subject: context.subject } : {}),
+      ...(context?.to ? { to: context.to } : {}),
+    },
     { params: { accountId } },
   );
 }
@@ -143,6 +152,32 @@ export function markRead(id: string, accountId?: string) {
   return apiClient.patch<void>(`/api/v1/mail/${id}/read`, undefined, {
     params: { accountId },
   });
+}
+
+export type ComposeMode = 'reply' | 'replyAll' | 'forward' | 'compose';
+
+export interface SendReplyPayload {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  bodyText: string;
+  bodyHtml?: string;
+  mode: ComposeMode;
+  inReplyTo?: string;
+  references?: string[];
+}
+
+export function sendReply(
+  threadId: string,
+  payload: SendReplyPayload,
+  accountId?: string,
+) {
+  return apiClient.post<{ success: boolean; messageId?: string; threadId?: string }>(
+    `/api/v1/mail/threads/${threadId}/send`,
+    payload,
+    { params: { accountId } },
+  );
 }
 
 export function markThreadRead(threadId: string, accountId?: string) {

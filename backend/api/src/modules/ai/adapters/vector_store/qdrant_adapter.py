@@ -49,13 +49,26 @@ class QdrantAdapter(IVectorStoreAdapter):
         collection MUST equal account_id (D16 isolation guarantee).
         """
         start = time.perf_counter()
-        vector = await self._embed(query_text)
-        results = self._client.search(
-            collection_name=collection,
-            query_vector=vector,
-            limit=top_k,
-            score_threshold=score_threshold,
-        )
+        # RAG is optional context. If the embedding service or Qdrant is
+        # unreachable (common in dev), degrade gracefully to zero chunks so
+        # the AI pipeline still produces a response from the primary content.
+        try:
+            vector = await self._embed(query_text)
+            results = self._client.search(
+                collection_name=collection,
+                query_vector=vector,
+                limit=top_k,
+                score_threshold=score_threshold,
+            )
+        except (httpx.HTTPError, Exception) as e:
+            if self._logger:
+                self._logger.info(
+                    "vector store unavailable — skipping RAG retrieval",
+                    level_override="warn",
+                    error=str(e),
+                    collection=collection,
+                )
+            return []
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         if self._logger:
             self._logger.info(

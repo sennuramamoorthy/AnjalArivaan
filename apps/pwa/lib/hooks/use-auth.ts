@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import * as React from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth-store';
 import * as authApi from '@/lib/api/auth';
@@ -90,5 +91,60 @@ export function useSetupMfa() {
 export function useVerifyMfaSetup() {
   return useMutation({
     mutationFn: authApi.verifyMfaSetup,
+  });
+}
+
+// ── Profile ───────────────────────────────────────────────────────────────
+
+export function useProfile() {
+  const { accessToken } = useAuthStore();
+  return useQuery({
+    queryKey: ['profile'],
+    queryFn: () => authApi.getProfile(),
+    enabled: !!accessToken,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useUpdateProfile() {
+  return useMutation({
+    mutationFn: authApi.updateProfile,
+  });
+}
+
+// ── Signatures ────────────────────────────────────────────────────────────
+
+export function useSignatures(accountId?: string) {
+  const { accessToken } = useAuthStore();
+  return useQuery({
+    queryKey: ['signatures', accountId],
+    queryFn: () => authApi.listSignatures(accountId),
+    enabled: !!accessToken && !!accountId,
+  });
+}
+
+/** Returns the default signature for the given account (or undefined). */
+export function useDefaultSignature(accountId?: string) {
+  const { data: signatures } = useSignatures(accountId);
+  return React.useMemo(
+    () => signatures?.find((s) => s.isDefault) ?? signatures?.[0] ?? null,
+    [signatures],
+  );
+}
+
+export function useCreateSignature() {
+  return useMutation({ mutationFn: authApi.createSignature });
+}
+
+export function useUpdateSignature() {
+  return useMutation({
+    mutationFn: ({ sigId, data }: { sigId: string; data: authApi.UpdateSignaturePayload }) =>
+      authApi.updateSignature(sigId, data),
+  });
+}
+
+export function useDeleteSignature() {
+  return useMutation({
+    mutationFn: authApi.deleteSignature,
   });
 }

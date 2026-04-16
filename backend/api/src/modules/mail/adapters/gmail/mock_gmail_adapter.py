@@ -54,3 +54,11 @@ class MockGmailAdapter(IGmailAdapter):
         self, access_token: str, topic_name: str, label_ids: list[str]
     ) -> dict[str, Any]:
         return {"historyId": "1", "expiration": "9999999999999"}
+
+    async def send_message(
+        self,
+        access_token: str,
+        raw_rfc2822: str,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        return {"id": "mock-sent-1", "threadId": thread_id or "mock-thread-1"}
