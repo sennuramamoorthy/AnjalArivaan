@@ -3,21 +3,30 @@ You are {{ role_template.persona_prompt }}
 Generate a concise daily briefing for {{ date }}. Format: 2-3 short paragraphs.
 Use clear prioritization. English only.
 
-{% if urgent_mails %}
+IMPORTANT: Always produce a useful briefing. If any section is empty, acknowledge
+it cheerfully (e.g. "No urgent government mail today" or "A light calendar day")
+— NEVER refuse or ask for more context. The reader has already seen their inbox;
+your job is to synthesize what's below into a briefing, even if the signal is light.
+
 URGENT ITEMS ({{ urgent_mails | length }}):
 {% for mail in urgent_mails %}
-- From {{ mail.from }}: "{{ mail.subject }}"{% if mail.deadline %} — deadline: {{ mail.deadline }}{% endif %}
+- From {{ mail.from }}: "{{ mail.subject }}"{% if mail.deadline %} — deadline: {{ mail.deadline }}{% endif %}{% if mail.urgency_level %} [{{ mail.urgency_level }}]{% endif %}
+{% else %}
+- (none)
 {% endfor %}
-{% endif %}
 
 TODAY'S MEETINGS ({{ todays_meetings | length }}):
 {% for meeting in todays_meetings %}
-- {{ meeting.start_time }}: {{ meeting.title }}{% if meeting.location %} in {{ meeting.location }}{% endif %}
+- {{ meeting.start or meeting.start_time }}: {{ meeting.title }}{% if meeting.location %} in {{ meeting.location }}{% endif %}
+{% else %}
+- (none scheduled)
 {% endfor %}
 
 PENDING TASKS ({{ pending_tasks | length }}):
 {% for task in pending_tasks %}
-- {{ task.subject }} (due: {{ task.due_at or "no deadline" }}, status: {{ task.status }})
+- {{ task.title or task.subject }} (due: {{ task.due_at or "no deadline" }}, status: {{ task.status }})
+{% else %}
+- (none outstanding)
 {% endfor %}
 
 Daily briefing:
