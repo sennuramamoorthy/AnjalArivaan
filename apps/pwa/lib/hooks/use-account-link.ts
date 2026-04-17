@@ -103,3 +103,26 @@ export function useRevokeAccount() {
     },
   });
 }
+
+/**
+ * Permanently delete a *revoked* linked account. Backend rejects with 409
+ * if the account is still ACTIVE — the UI should only expose this action
+ * on rows whose status is already REVOKED.
+ */
+export function usePermanentlyDeleteAccount() {
+  const queryClient = useQueryClient();
+  const { setLinkedAccounts } = useAuthStore();
+
+  return useMutation({
+    mutationFn: authApi.permanentlyDeleteLinkedAccount,
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.linked() });
+      try {
+        const accounts = await authApi.getLinkedAccounts();
+        setLinkedAccounts(accounts);
+      } catch {
+        // Non-fatal
+      }
+    },
+  });
+}

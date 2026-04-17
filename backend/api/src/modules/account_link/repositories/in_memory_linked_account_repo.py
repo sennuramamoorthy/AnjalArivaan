@@ -33,3 +33,6 @@ class InMemoryLinkedAccountRepository(ILinkedAccountRepository):
         account = self._store.get(id)
         if account is not None:
             account.status = status
+
+    async def delete_by_id(self, id: str) -> None:
+        self._store.pop(id, None)

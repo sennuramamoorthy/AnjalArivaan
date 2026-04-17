@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Unlink, Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCw } from 'lucide-react';
+import { Plus, Unlink, Loader2, CheckCircle2, AlertTriangle, XCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import {
   useInitiateLink,
   useRevokeAccount,
   useSyncAccount,
+  usePermanentlyDeleteAccount,
 } from '@/lib/hooks/use-account-link';
 import type { LinkedAccountDetail } from '@/lib/api/auth';
 
@@ -27,14 +28,19 @@ function AccountRow({
   isRevoking,
   onSync,
   isSyncing,
+  onDelete,
+  isDeleting,
 }: {
   account: LinkedAccountDetail;
   onRevoke: (id: string) => void;
   isRevoking: boolean;
   onSync: (id: string) => void;
   isSyncing: boolean;
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
 }) {
   const [confirmUnlink, setConfirmUnlink] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
   const config = STATUS_CONFIG[account.status] ?? STATUS_CONFIG.ACTIVE;
   const StatusIcon = config.icon;
 
@@ -82,6 +88,49 @@ function AccountRow({
           )}
         </div>
       </div>
+
+      {account.status === 'REVOKED' && (
+        <div className="shrink-0 flex items-center gap-1">
+          {confirmDelete ? (
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  onDelete(account.id);
+                  setConfirmDelete(false);
+                }}
+                disabled={isDeleting}
+                title="Permanently delete this revoked account"
+              >
+                {isDeleting ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Trash2 size={12} />
+                )}
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmDelete(true)}
+              className="text-gray-400 hover:text-red-500"
+              title="Remove this revoked account from the list"
+            >
+              <Trash2 size={14} />
+            </Button>
+          )}
+        </div>
+      )}
 
       {account.status === 'ACTIVE' && (
         <div className="shrink-0 flex items-center gap-1">
@@ -158,6 +207,11 @@ export function LinkedAccountsCard() {
   const { mutate: initiateLink, isPending: isLinking } = useInitiateLink();
   const { mutate: revokeAccount, isPending: isRevoking } = useRevokeAccount();
   const { mutate: syncAccount, isPending: isSyncing, variables: syncingId } = useSyncAccount();
+  const {
+    mutate: deleteAccount,
+    isPending: isDeleting,
+    variables: deletingId,
+  } = usePermanentlyDeleteAccount();
 
   // Treat empty data or error as "no accounts linked" — show the empty CTA
   const hasNoAccounts = !accounts || accounts.length === 0;
@@ -230,6 +284,8 @@ export function LinkedAccountsCard() {
               isRevoking={isRevoking}
               onSync={(id) => syncAccount(id)}
               isSyncing={isSyncing && syncingId === account.id}
+              onDelete={(id) => deleteAccount(id)}
+              isDeleting={isDeleting && deletingId === account.id}
             />
           ))}
         </div>

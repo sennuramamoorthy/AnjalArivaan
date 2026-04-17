@@ -188,6 +188,74 @@ class TestRevokeAccount:
         assert list_resp.json()["data"][0]["status"] == "REVOKED"
 
 
+class TestPermanentlyDeleteAccount:
+    """Covers `DELETE /api/v1/accounts/linked/{id}/permanent` — the
+    hard-delete used by the Settings UI to clear a revoked row."""
+
+    def _link_and_revoke(self, client) -> str:
+        init_resp = client.post(
+            "/api/v1/accounts/link/initiate",
+            json={"redirectUri": "http://localhost/callback"},
+            headers=AUTH_HEADER,
+        )
+        state = init_resp.json()["data"]["state"]
+        cb_resp = client.get(
+            "/api/v1/accounts/link/callback",
+            params={"code": "auth-code", "state": state},
+            headers=AUTH_HEADER,
+        )
+        account_id = cb_resp.json()["data"]["id"]
+        client.delete(
+            f"/api/v1/accounts/linked/{account_id}", headers=AUTH_HEADER
+        )
+        return account_id
+
+    def test_permanent_delete_removes_row(self, client):
+        account_id = self._link_and_revoke(client)
+
+        resp = client.delete(
+            f"/api/v1/accounts/linked/{account_id}/permanent",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["success"] is True
+
+        list_resp = client.get("/api/v1/accounts/linked", headers=AUTH_HEADER)
+        assert list_resp.json()["data"] == []
+
+    def test_permanent_delete_rejects_active_account(self, client):
+        init_resp = client.post(
+            "/api/v1/accounts/link/initiate",
+            json={"redirectUri": "http://localhost/callback"},
+            headers=AUTH_HEADER,
+        )
+        state = init_resp.json()["data"]["state"]
+        cb_resp = client.get(
+            "/api/v1/accounts/link/callback",
+            params={"code": "auth-code", "state": state},
+            headers=AUTH_HEADER,
+        )
+        account_id = cb_resp.json()["data"]["id"]
+
+        resp = client.delete(
+            f"/api/v1/accounts/linked/{account_id}/permanent",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "ACCOUNT_NOT_REVOKED"
+
+    def test_permanent_delete_unknown_account_returns_404(self, client):
+        resp = client.delete(
+            "/api/v1/accounts/linked/no-such-account/permanent",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 404
+
+    def test_permanent_delete_requires_auth(self, client):
+        resp = client.delete("/api/v1/accounts/linked/x/permanent")
+        assert resp.status_code == 401
+
+
 class TestAuthRequired:
     def test_routes_require_auth(self, client):
         # No auth header

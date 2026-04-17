@@ -1,10 +1,11 @@
 """Account Link routes — Google Workspace OAuth linking flow.
 
-GET  /accounts/linked               — list linked accounts for authenticated user
-POST /accounts/link/initiate        — start OAuth flow
-GET  /accounts/link/callback        — Google redirects here with code + state
-POST /accounts/linked/{id}/sync     — trigger a background Gmail sync
-DELETE /accounts/linked/{id}        — revoke a linked account
+GET  /accounts/linked                   — list linked accounts for authenticated user
+POST /accounts/link/initiate            — start OAuth flow
+GET  /accounts/link/callback            — Google redirects here with code + state
+POST /accounts/linked/{id}/sync         — trigger a background Gmail sync
+DELETE /accounts/linked/{id}            — revoke a linked account (soft — status → REVOKED)
+DELETE /accounts/linked/{id}/permanent  — hard-delete a revoked account (removes the row)
 """
 
 import asyncio
@@ -330,6 +331,59 @@ async def revoke_linked_account(request: Request, account_id: str):
             status_code=404,
             content=error_response("NOT_FOUND", str(e), trace_id),
         )
+
+    return success_response({"success": True}, trace_id)
+
+
+@router.delete("/accounts/linked/{account_id}/permanent")
+async def permanently_delete_linked_account(request: Request, account_id: str):
+    """Hard-delete a revoked linked account so it disappears from the
+    Settings → Linked Accounts list entirely. Only allowed when the
+    account is already REVOKED (which guarantees Vault cleanup ran).
+    """
+    trace_id = _trace_id(request)
+    user = _get_user(request)
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
+        )
+
+    service = getattr(request.app.state, "account_link_service", None)
+    if service is None:
+        return JSONResponse(
+            status_code=503,
+            content=error_response(
+                "SERVICE_UNAVAILABLE", "Account link service not configured", trace_id
+            ),
+        )
+
+    try:
+        await service.delete_account(account_id=account_id, user_id=user["id"])
+    except PermissionError as e:
+        # Collapse ownership + missing into 404 so we don't leak which
+        # account IDs exist for other users.
+        return JSONResponse(
+            status_code=404,
+            content=error_response("NOT_FOUND", str(e), trace_id),
+        )
+    except ValueError as e:
+        return JSONResponse(
+            status_code=409,
+            content=error_response("ACCOUNT_NOT_REVOKED", str(e), trace_id),
+        )
+
+    # Best-effort audit log
+    audit_repo = getattr(request.app.state, "audit_repo", None)
+    if audit_repo is not None:
+        try:
+            await audit_repo.log_event(
+                actor=user["id"],
+                action="ACCOUNT_PERMANENT_DELETE",
+                target=account_id,
+            )
+        except Exception:
+            pass
 
     return success_response({"success": True}, trace_id)
 

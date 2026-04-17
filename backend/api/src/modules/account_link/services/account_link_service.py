@@ -146,3 +146,33 @@ class AccountLinkService:
         self._logger.info(
             "Linked account revoked", account_id=account_id, user_id=user_id
         )
+
+    async def delete_account(self, account_id: str, user_id: str) -> None:
+        """Hard-delete a revoked linked account.
+
+        Two-step UX: the user first clicks "Unlink" (→ ``revoke_account``
+        which cleans up Vault + flips status to REVOKED), then clicks
+        "Delete" on the now-greyed-out row. We only allow hard-delete on
+        REVOKED rows so an accidental click cannot nuke a working link,
+        and so Vault cleanup always runs before the row disappears.
+
+        Raises ``PermissionError`` when the account is missing or owned
+        by someone else (collapsed to 404 at the edge to avoid leaking
+        existence). Raises ``ValueError`` when the account is not in
+        REVOKED state.
+        """
+        account = await self._repo.find_by_id(account_id)
+        if account is None or account.app_user_id != user_id:
+            raise PermissionError("Account not found or not owned by user")
+
+        if account.status != "REVOKED":
+            raise ValueError(
+                "Account must be revoked before it can be permanently deleted"
+            )
+
+        await self._repo.delete_by_id(account_id)
+        self._logger.info(
+            "Linked account deleted",
+            account_id=account_id,
+            user_id=user_id,
+        )

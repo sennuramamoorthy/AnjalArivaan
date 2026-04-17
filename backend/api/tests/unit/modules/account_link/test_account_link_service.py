@@ -202,3 +202,70 @@ class TestRevokeAccount:
             await service.revoke_account(
                 account_id=account.id, user_id="user-OTHER"
             )
+
+
+class TestPermanentlyDeleteAccount:
+    """Admins want the option to hard-delete a revoked linked account so
+    the Settings list doesn't accumulate stale rows after repeated
+    link/unlink cycles. Rules:
+
+    - Only REVOKED accounts can be hard-deleted (enforces the two-step
+      unlink → delete UX and prevents accidental loss of an active link).
+    - Ownership is enforced (404 on someone else's account).
+    - After delete the row is gone from the repo entirely.
+    """
+
+    async def _revoked_account(self, service, redis):
+        r = await service.initiate_oauth(
+            user_id="user-1", redirect_uri="http://x", scopes=[]
+        )
+        account = await service.complete_oauth(
+            user_id="user-1", code="code-1", state=r["state"]
+        )
+        await service.revoke_account(account_id=account.id, user_id="user-1")
+        return account
+
+    async def test_delete_removes_revoked_account_from_repo(
+        self, service, redis, repo
+    ):
+        account = await self._revoked_account(service, redis)
+
+        await service.delete_account(account_id=account.id, user_id="user-1")
+
+        assert await repo.find_by_id(account.id) is None
+
+    async def test_delete_rejects_active_account(
+        self, service, redis, repo
+    ):
+        r = await service.initiate_oauth(
+            user_id="user-1", redirect_uri="http://x", scopes=[]
+        )
+        account = await service.complete_oauth(
+            user_id="user-1", code="code-1", state=r["state"]
+        )
+
+        with pytest.raises(ValueError, match="must be revoked"):
+            await service.delete_account(
+                account_id=account.id, user_id="user-1"
+            )
+
+        # Row must still exist
+        assert await repo.find_by_id(account.id) is not None
+
+    async def test_delete_rejects_if_not_owned_by_user(
+        self, service, redis, repo
+    ):
+        account = await self._revoked_account(service, redis)
+
+        with pytest.raises(PermissionError, match="not found or not owned"):
+            await service.delete_account(
+                account_id=account.id, user_id="user-OTHER"
+            )
+
+        assert await repo.find_by_id(account.id) is not None
+
+    async def test_delete_missing_account_raises(self, service):
+        with pytest.raises(PermissionError):
+            await service.delete_account(
+                account_id="no-such-account", user_id="user-1"
+            )

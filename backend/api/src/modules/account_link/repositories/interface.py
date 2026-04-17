@@ -30,3 +30,11 @@ class ILinkedAccountRepository(ABC):
     async def update_status(self, id: str, status: str) -> None:
         """Update the status field of a linked account."""
         ...
+
+    @abstractmethod
+    async def delete_by_id(self, id: str) -> None:
+        """Hard-delete a linked account row. Idempotent — deleting a
+        missing row is not an error. Callers enforce business rules
+        (ownership, status) before calling this.
+        """
+        ...

@@ -133,6 +133,17 @@ export function revokeLinkedAccount(accountId: string) {
 }
 
 /**
+ * Hard-delete a *revoked* linked account. The backend enforces that the
+ * account must already be in REVOKED state (so Vault cleanup has run);
+ * calling this on an ACTIVE account returns 409 ACCOUNT_NOT_REVOKED.
+ */
+export function permanentlyDeleteLinkedAccount(accountId: string) {
+  return apiClient.delete<{ success: boolean }>(
+    `/api/v1/accounts/linked/${accountId}/permanent`
+  );
+}
+
+/**
  * Trigger a manual Gmail sync for a linked account. The backend runs the
  * sync_service in the background and returns immediately; poll linked
  * account details afterwards to see the updated `lastSyncAt`.

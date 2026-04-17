@@ -113,3 +113,10 @@ class PostgresLinkedAccountRepository(ILinkedAccountRepository):
             with conn.cursor() as cur:
                 cur.execute(sql, (status, id))
                 conn.commit()
+
+    async def delete_by_id(self, id: str) -> None:
+        sql = "DELETE FROM linked_accounts WHERE id = %s"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (id,))
+                conn.commit()
