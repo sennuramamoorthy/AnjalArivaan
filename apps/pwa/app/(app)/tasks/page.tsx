@@ -181,7 +181,7 @@ export default function TasksPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <Card className="mx-auto mt-6 max-w-3xl">
+        <Card className="mx-6 mt-6">
           <NewTaskForm />
           {isLoading ? (
             <div className="space-y-2 p-4">

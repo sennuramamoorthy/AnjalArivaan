@@ -36,6 +36,15 @@ import { useAuthStore } from '@/store/auth-store';
 
 type ViewMode = 'day' | 'week' | 'month' | 'agenda';
 
+// Context so deeply-nested event components can request the page to open
+// the event-detail modal without prop-drilling through every view.
+const EventSelectContext = React.createContext<((e: CalendarEvent) => void) | null>(
+  null,
+);
+function useSelectEvent() {
+  return React.useContext(EventSelectContext);
+}
+
 // ---------- date helpers ----------
 
 function toISODate(d: Date): string {
@@ -142,9 +151,12 @@ function formatTitle(view: ViewMode, cursor: Date): string {
 // ---------- components ----------
 
 function EventChip({ event }: { event: CalendarEvent }) {
+  const onSelect = useSelectEvent();
   return (
-    <div
-      className="truncate rounded bg-primary-100 px-1.5 py-0.5 text-[11px] text-primary-900 dark:bg-primary-900/40 dark:text-primary-200"
+    <button
+      type="button"
+      onClick={() => onSelect?.(event)}
+      className="block w-full truncate rounded bg-primary-100 px-1.5 py-0.5 text-left text-[11px] text-primary-900 hover:bg-primary-200 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-primary-900/40 dark:text-primary-200 dark:hover:bg-primary-900/60"
       title={event.title}
     >
       {event.start && !event.title.startsWith('[All day]') ? (
@@ -156,13 +168,18 @@ function EventChip({ event }: { event: CalendarEvent }) {
         </span>
       ) : null}
       {event.title}
-    </div>
+    </button>
   );
 }
 
 function AgendaEventCard({ event }: { event: CalendarEvent }) {
+  const onSelect = useSelectEvent();
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+    <button
+      type="button"
+      onClick={() => onSelect?.(event)}
+      className="block w-full rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-primary-300 hover:bg-primary-50/40 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-primary-700 dark:hover:bg-primary-900/20"
+    >
       <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
         {event.title}
       </p>
@@ -185,7 +202,7 @@ function AgendaEventCard({ event }: { event: CalendarEvent }) {
           </span>
         )}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -231,9 +248,12 @@ function eventHeight(event: CalendarEvent): number {
 }
 
 function TimelineEvent({ event }: { event: CalendarEvent }) {
+  const onSelect = useSelectEvent();
   return (
-    <div
-      className="absolute left-1 right-1 overflow-hidden rounded border-l-2 border-primary-500 bg-primary-50 px-1.5 py-1 text-[11px] text-primary-900 dark:bg-primary-900/30 dark:text-primary-100"
+    <button
+      type="button"
+      onClick={() => onSelect?.(event)}
+      className="absolute left-1 right-1 overflow-hidden rounded border-l-2 border-primary-500 bg-primary-50 px-1.5 py-1 text-left text-[11px] text-primary-900 hover:bg-primary-100 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-primary-900/30 dark:text-primary-100 dark:hover:bg-primary-900/50"
       style={{ top: eventTop(event), height: eventHeight(event) }}
       title={`${event.title}\n${formatTimeRange(event.start, event.end)}`}
     >
@@ -241,7 +261,7 @@ function TimelineEvent({ event }: { event: CalendarEvent }) {
       <div className="truncate opacity-75">
         {formatTimeRange(event.start, event.end)}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -720,11 +740,87 @@ const VIEW_OPTIONS: Array<{ value: ViewMode; label: string }> = [
   { value: 'agenda', label: 'Agenda' },
 ];
 
+function EventDetailModal({
+  event,
+  onClose,
+}: {
+  event: CalendarEvent | null;
+  onClose: () => void;
+}) {
+  if (!event) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="event-detail-title"
+    >
+      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+          <div className="min-w-0">
+            <h2
+              id="event-detail-title"
+              className="truncate text-base font-semibold text-gray-900 dark:text-gray-100"
+            >
+              {event.title}
+            </h2>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {formatTimeRange(event.start, event.end)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="space-y-3 px-5 py-4 text-sm text-gray-700 dark:text-gray-300">
+          {event.location && (
+            <div className="flex items-start gap-2">
+              <MapPin size={14} className="mt-0.5 shrink-0 text-gray-500" />
+              <span>{event.location}</span>
+            </div>
+          )}
+          {event.attendees?.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Users size={14} className="mt-0.5 shrink-0 text-gray-500" />
+              <ul className="min-w-0 flex-1 space-y-0.5">
+                {event.attendees.map((a) => (
+                  <li key={a} className="truncate">
+                    {a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!event.location && (!event.attendees || event.attendees.length === 0) && (
+            <p className="text-xs italic text-gray-500 dark:text-gray-400">
+              No location or attendees recorded on this event.
+            </p>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-5 py-3 dark:border-gray-800">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CalendarPage() {
   const [view, setView] = React.useState<ViewMode>('week');
   const [cursor, setCursor] = React.useState<Date>(() => startOfDay(new Date()));
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createSeed, setCreateSeed] = React.useState<Date>(() => new Date());
+  const [selectedEvent, setSelectedEvent] = React.useState<CalendarEvent | null>(null);
 
   const { activeAccountId, linkedAccounts } = useAuthStore();
   const accountId = activeAccountId ?? linkedAccounts[0]?.id ?? undefined;
@@ -746,6 +842,7 @@ export default function CalendarPage() {
   };
 
   return (
+    <EventSelectContext.Provider value={setSelectedEvent}>
     <div className="flex h-full flex-col">
       <header className="border-b border-gray-200 px-6 py-4 dark:border-gray-800">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -837,6 +934,11 @@ export default function CalendarPage() {
         initialStart={createSeed}
         accountId={accountId}
       />
+      <EventDetailModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+      />
     </div>
+    </EventSelectContext.Provider>
   );
 }
