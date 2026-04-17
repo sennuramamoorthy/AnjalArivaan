@@ -20,10 +20,17 @@ interface LinkedAccount {
 interface AuthState {
   user: User | null;
   accessToken: string | null;
+  refreshToken: string | null;
   linkedAccounts: LinkedAccount[];
   activeAccountId: string | null;
   setUser: (user: User) => void;
-  setTokens: (access: string) => void;
+  /**
+   * Persist both tokens. `refresh` is optional so legacy call-sites that
+   * only pass an access token keep working, but the login/MFA flow should
+   * always pass both so we can silently refresh the short-lived access
+   * token without kicking the user back to /login every 15 minutes.
+   */
+  setTokens: (access: string, refresh?: string) => void;
   setLinkedAccounts: (accounts: LinkedAccount[]) => void;
   switchAccount: (accountId: string) => void;
   logout: () => void;
@@ -34,12 +41,17 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       accessToken: null,
+      refreshToken: null,
       linkedAccounts: [],
       activeAccountId: null,
 
       setUser: (user) => set({ user }),
 
-      setTokens: (access) => set({ accessToken: access }),
+      setTokens: (access, refresh) =>
+        set((state) => ({
+          accessToken: access,
+          refreshToken: refresh ?? state.refreshToken,
+        })),
 
       setLinkedAccounts: (accounts) =>
         set((state) => {
@@ -62,6 +74,7 @@ export const useAuthStore = create<AuthState>()(
         set({
           user: null,
           accessToken: null,
+          refreshToken: null,
           linkedAccounts: [],
           activeAccountId: null,
         }),
@@ -71,6 +84,7 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
         linkedAccounts: state.linkedAccounts,
         activeAccountId: state.activeAccountId,
       }),

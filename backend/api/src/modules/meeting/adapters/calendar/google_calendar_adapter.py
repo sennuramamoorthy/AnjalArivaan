@@ -181,3 +181,86 @@ class GoogleCalendarAdapter(ICalendarService):
                     error=e,
                 )
             return []
+
+    async def create_event(
+        self,
+        account_id: str,
+        user_id: str,
+        *,
+        summary: str,
+        start: datetime,
+        end: datetime,
+        description: Optional[str] = None,
+        location: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
+        calendar_id: str = "primary",
+        trace_id: Optional[str] = None,
+    ) -> CalendarEvent:
+        t0 = time.monotonic()
+        hashed_account_id = _hash_account_id(account_id)
+
+        access_token = await self._resolve_access_token(account_id)
+        if access_token is None:
+            if self._logger:
+                self._logger.warn(
+                    "google_calendar.no_credentials",
+                    service="google-calendar",
+                    operation="create_event",
+                    hashed_account_id=hashed_account_id,
+                    trace_id=trace_id,
+                )
+            raise RuntimeError("no_credentials")
+
+        body: dict[str, Any] = {
+            "summary": summary,
+            "start": {"dateTime": start.isoformat()},
+            "end": {"dateTime": end.isoformat()},
+        }
+        if description is not None:
+            body["description"] = description
+        if location is not None:
+            body["location"] = location
+        if attendees:
+            body["attendees"] = [
+                {"email": a["email"], **({"displayName": a["name"]} if a.get("name") else {})}
+                for a in attendees
+                if a.get("email")
+            ]
+
+        try:
+            service = self._build_service(access_token)
+
+            def _call():
+                return (
+                    service.events()
+                    .insert(calendarId=calendar_id, body=body)
+                    .execute()
+                )
+
+            resp = await asyncio.to_thread(_call)
+            event = self._parse_event(resp or {})
+            duration_ms = round((time.monotonic() - t0) * 1000, 1)
+            if self._logger:
+                self._logger.info(
+                    "google_calendar.create_event",
+                    service="google-calendar",
+                    operation="create_event",
+                    hashed_account_id=hashed_account_id,
+                    event_id=event.id,
+                    duration_ms=duration_ms,
+                    trace_id=trace_id,
+                )
+            return event
+        except Exception as e:
+            duration_ms = round((time.monotonic() - t0) * 1000, 1)
+            if self._logger:
+                self._logger.error(
+                    "google_calendar.create_event_failed",
+                    service="google-calendar",
+                    operation="create_event",
+                    hashed_account_id=hashed_account_id,
+                    duration_ms=duration_ms,
+                    trace_id=trace_id,
+                    error=e,
+                )
+            raise

@@ -31,15 +31,80 @@ interface ApiEnvelope<T> {
   meta?: { traceId: string };
 }
 
-function getAccessToken(): string | null {
+interface StoredAuth {
+  state?: {
+    accessToken?: string;
+    refreshToken?: string;
+  };
+}
+
+function readAuth(): StoredAuth['state'] | null {
   try {
     const raw = localStorage.getItem('anjal-auth');
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { state?: { accessToken?: string } };
-    return parsed?.state?.accessToken ?? null;
+    return (JSON.parse(raw) as StoredAuth)?.state ?? null;
   } catch {
     return null;
   }
+}
+
+function getAccessToken(): string | null {
+  return readAuth()?.accessToken ?? null;
+}
+
+function getRefreshToken(): string | null {
+  return readAuth()?.refreshToken ?? null;
+}
+
+function writeAccessToken(access: string, refresh?: string): void {
+  try {
+    const raw = localStorage.getItem('anjal-auth');
+    const parsed = raw ? (JSON.parse(raw) as StoredAuth) : { state: {} };
+    parsed.state = {
+      ...(parsed.state ?? {}),
+      accessToken: access,
+      ...(refresh ? { refreshToken: refresh } : {}),
+    };
+    localStorage.setItem('anjal-auth', JSON.stringify(parsed));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+/**
+ * In-flight refresh guard. If two concurrent 401s race, we only fire one
+ * POST /auth/refresh and let every other caller await the same promise.
+ * This prevents the second call from burning the refresh token (the
+ * backend rotates it on use).
+ */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  const refresh = getRefreshToken();
+  if (!refresh) return null;
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(buildUrl('/api/v1/auth/refresh'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refresh }),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as ApiEnvelope<{
+        accessToken: string;
+        refreshToken: string;
+      }>;
+      if (!body.success || !body.data?.accessToken) return null;
+      writeAccessToken(body.data.accessToken, body.data.refreshToken);
+      return body.data.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 function buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>): string {
@@ -52,7 +117,11 @@ function buildUrl(path: string, params?: Record<string, string | number | boolea
   return url.toString();
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+  _isRetry = false,
+): Promise<T> {
   const { params, ...init } = options;
   const traceId = generateTraceId();
   const token = getAccessToken();
@@ -77,8 +146,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       // ignore JSON parse failure
     }
 
-    // Auto-redirect to login on 401 — clears stale session
-    if (res.status === 401 && !path.includes('/auth/login')) {
+    // On 401: try refresh-then-retry once. Only if that fails do we clear
+    // the session and redirect to /login. The 15-min access-token TTL
+    // used to bounce users to /login mid-session; silent refresh keeps
+    // the session alive as long as the refresh token is valid.
+    if (
+      res.status === 401 &&
+      !_isRetry &&
+      !path.includes('/auth/login') &&
+      !path.includes('/auth/refresh')
+    ) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return request<T>(path, options, true);
+      }
       try {
         localStorage.removeItem('anjal-auth');
       } catch {

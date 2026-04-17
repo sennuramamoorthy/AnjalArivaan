@@ -24,3 +24,34 @@ export function listCalendarEvents(params: ListEventsParams): Promise<CalendarEv
     },
   });
 }
+
+export interface CreateCalendarEventAttendee {
+  email: string;
+  name?: string;
+}
+
+export interface CreateCalendarEventInput {
+  accountId: string;
+  summary: string;
+  start: string; // ISO string
+  end: string; // ISO string
+  description?: string;
+  location?: string;
+  attendees?: CreateCalendarEventAttendee[];
+}
+
+export interface CreatedCalendarEvent {
+  id: string;
+  summary: string;
+  start: string;
+  end: string;
+  description?: string;
+  location?: string;
+  attendees?: CreateCalendarEventAttendee[];
+}
+
+export function createCalendarEvent(
+  input: CreateCalendarEventInput,
+): Promise<CreatedCalendarEvent> {
+  return apiClient.post<CreatedCalendarEvent>('/api/v1/calendar/events', input);
+}

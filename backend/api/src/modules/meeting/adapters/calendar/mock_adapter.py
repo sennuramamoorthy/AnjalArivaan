@@ -8,7 +8,8 @@ helper is also provided so tests that don't know the exact date
 
 from __future__ import annotations
 
-from datetime import date
+import uuid
+from datetime import date, datetime
 from typing import Optional
 
 from src.modules.meeting.adapters.calendar.interface import (
@@ -50,6 +51,31 @@ class MockCalendarAdapter(ICalendarService):
         self._default_events[account_id] = list(events)
 
     # ── ICalendarService ─────────────────────────────────────────────
+
+    async def create_event(
+        self,
+        account_id: str,
+        user_id: str,
+        *,
+        summary: str,
+        start: datetime,
+        end: datetime,
+        description: Optional[str] = None,
+        location: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
+        calendar_id: str = "primary",
+    ) -> CalendarEvent:
+        event = CalendarEvent(
+            id=f"mock-{uuid.uuid4().hex[:8]}",
+            title=summary,
+            start=start,
+            end=end,
+            location=location,
+            attendees=[a["email"] for a in (attendees or []) if a.get("email")],
+        )
+        key = (account_id, start.date().isoformat())
+        self._events.setdefault(key, []).append(event)
+        return event
 
     async def list_events_for_day(
         self,

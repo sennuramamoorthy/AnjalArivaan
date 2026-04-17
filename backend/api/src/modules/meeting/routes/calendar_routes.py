@@ -19,6 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError
 
 from src.modules.meeting.adapters.calendar.interface import CalendarEvent
 from src.shared.domain.envelope import error_response, success_response
@@ -177,3 +178,139 @@ async def list_events(
             pass
 
     return success_response([_event_to_dict(e) for e in events], trace_id)
+
+
+class _AttendeeIn(BaseModel):
+    email: str
+    name: Optional[str] = None
+
+
+class _CreateEventIn(BaseModel):
+    accountId: str = Field(..., min_length=1)
+    summary: str = Field(..., min_length=1)
+    start: str = Field(..., min_length=1)
+    end: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    location: Optional[str] = None
+    attendees: Optional[list[_AttendeeIn]] = None
+
+
+def _parse_iso_dt(value: str) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+@router.post("/calendar/events")
+async def create_event(request: Request):
+    trace_id = _trace_id(request)
+    started = time.monotonic()
+
+    user = _get_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
+        )
+
+    try:
+        raw = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("BAD_REQUEST", "Invalid JSON body", trace_id),
+        )
+
+    try:
+        payload = _CreateEventIn(**(raw or {}))
+    except ValidationError as e:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("BAD_REQUEST", str(e), trace_id),
+        )
+
+    start_dt = _parse_iso_dt(payload.start)
+    end_dt = _parse_iso_dt(payload.end)
+    if start_dt is None or end_dt is None:
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                "BAD_REQUEST", "start/end must be ISO-8601 datetimes", trace_id
+            ),
+        )
+    if end_dt < start_dt:
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                "BAD_REQUEST", "'end' must be on or after 'start'", trace_id
+            ),
+        )
+
+    forbidden = await require_account_ownership(
+        request, payload.accountId, user["id"], trace_id
+    )
+    if forbidden:
+        return forbidden
+
+    calendar_service = getattr(request.app.state, "calendar_service", None)
+    if calendar_service is None:
+        return JSONResponse(
+            status_code=503,
+            content=error_response(
+                "SERVICE_UNAVAILABLE", "Calendar service not available", trace_id
+            ),
+        )
+
+    attendees_payload = (
+        [a.model_dump() for a in payload.attendees] if payload.attendees else None
+    )
+
+    try:
+        event = await calendar_service.create_event(
+            payload.accountId,
+            user["id"],
+            summary=payload.summary,
+            start=start_dt,
+            end=end_dt,
+            description=payload.description,
+            location=payload.location,
+            attendees=attendees_payload,
+        )
+    except Exception as e:
+        logger = getattr(request.app.state, "logger", None)
+        if logger is not None:
+            try:
+                logger.error(
+                    "calendar.create_failed",
+                    service="calendar",
+                    trace_id=trace_id,
+                    account_id=payload.accountId,
+                    error=str(e),
+                )
+            except Exception:
+                pass
+        return JSONResponse(
+            status_code=502,
+            content=error_response(
+                "UPSTREAM_ERROR", "Calendar create failed", trace_id
+            ),
+        )
+
+    duration_ms = round((time.monotonic() - started) * 1000, 1)
+    logger = getattr(request.app.state, "logger", None)
+    if logger is not None:
+        try:
+            logger.info(
+                "calendar.create",
+                service="calendar",
+                trace_id=trace_id,
+                account_id=payload.accountId,
+                user_id=user["id"],
+                event_id=event.id,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
+
+    return success_response(_event_to_dict(event), trace_id)

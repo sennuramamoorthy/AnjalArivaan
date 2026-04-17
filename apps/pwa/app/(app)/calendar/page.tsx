@@ -17,15 +17,22 @@ import {
   ChevronRight,
   Clock,
   MapPin,
+  Plus,
   Users,
+  X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { useCalendarEvents } from '@/lib/hooks/use-calendar';
+import {
+  useCalendarEvents,
+  useCreateCalendarEvent,
+} from '@/lib/hooks/use-calendar';
 import type { CalendarEvent } from '@/lib/api/calendar';
+import { useAuthStore } from '@/store/auth-store';
 
 type ViewMode = 'day' | 'week' | 'month' | 'agenda';
 
@@ -483,6 +490,227 @@ function AgendaView({
   );
 }
 
+// ---------- create-event modal ----------
+
+/**
+ * Format a Date as the `YYYY-MM-DDTHH:mm` string required by
+ * `<input type="datetime-local">`. Uses local (browser) timezone.
+ */
+function toLocalDatetimeInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+function CreateEventModal({
+  open,
+  onClose,
+  initialStart,
+  accountId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialStart: Date;
+  accountId: string | undefined;
+}) {
+  const createMutation = useCreateCalendarEvent();
+  const [title, setTitle] = React.useState('');
+  const [start, setStart] = React.useState(() =>
+    toLocalDatetimeInput(initialStart),
+  );
+  const [end, setEnd] = React.useState(() =>
+    toLocalDatetimeInput(new Date(initialStart.getTime() + 60 * 60 * 1000)),
+  );
+  const [location, setLocation] = React.useState('');
+  const [description, setDescription] = React.useState('');
+  const [attendees, setAttendees] = React.useState('');
+  const [formError, setFormError] = React.useState<string | null>(null);
+
+  // Reset form every time the modal opens
+  React.useEffect(() => {
+    if (open) {
+      setTitle('');
+      setStart(toLocalDatetimeInput(initialStart));
+      setEnd(
+        toLocalDatetimeInput(
+          new Date(initialStart.getTime() + 60 * 60 * 1000),
+        ),
+      );
+      setLocation('');
+      setDescription('');
+      setAttendees('');
+      setFormError(null);
+      createMutation.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialStart]);
+
+  if (!open) return null;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    if (!accountId) {
+      setFormError('No linked Google account is active.');
+      return;
+    }
+    if (!title.trim()) {
+      setFormError('Title is required.');
+      return;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      setFormError('Start and end must be valid dates.');
+      return;
+    }
+    if (endDate <= startDate) {
+      setFormError('End must be after start.');
+      return;
+    }
+    const parsedAttendees = attendees
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((email) => ({ email }));
+
+    createMutation.mutate(
+      {
+        accountId,
+        summary: title.trim(),
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        description: description.trim() || undefined,
+        location: location.trim() || undefined,
+        attendees: parsedAttendees.length ? parsedAttendees : undefined,
+      },
+      {
+        onSuccess: () => onClose(),
+        onError: (err: unknown) => {
+          const msg =
+            err instanceof Error ? err.message : 'Could not create event.';
+          setFormError(msg);
+        },
+      },
+    );
+  };
+
+  const submitting = createMutation.isPending;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !submitting) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-event-title"
+    >
+      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+          <h2
+            id="create-event-title"
+            className="text-base font-semibold text-gray-900 dark:text-gray-100"
+          >
+            New event
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={submit} className="space-y-3 px-4 py-4">
+          <Input
+            label="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            autoFocus
+            placeholder="Meeting subject"
+          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input
+              label="Start"
+              type="datetime-local"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              required
+            />
+            <Input
+              label="End"
+              type="datetime-local"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              required
+            />
+          </div>
+          <Input
+            label="Location"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Room 204 / Google Meet / …"
+          />
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="event-description"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Description
+            </label>
+            <textarea
+              id="event-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+              placeholder="Agenda, notes, links"
+            />
+          </div>
+          <Input
+            label="Attendees"
+            value={attendees}
+            onChange={(e) => setAttendees(e.target.value)}
+            placeholder="alice@example.com, bob@example.com"
+            helperText="Comma-separated email addresses"
+          />
+
+          {formError && (
+            <p
+              className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+              role="alert"
+            >
+              {formError}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create event'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ---------- page ----------
 
 const VIEW_OPTIONS: Array<{ value: ViewMode; label: string }> = [
@@ -495,6 +723,11 @@ const VIEW_OPTIONS: Array<{ value: ViewMode; label: string }> = [
 export default function CalendarPage() {
   const [view, setView] = React.useState<ViewMode>('week');
   const [cursor, setCursor] = React.useState<Date>(() => startOfDay(new Date()));
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [createSeed, setCreateSeed] = React.useState<Date>(() => new Date());
+
+  const { activeAccountId, linkedAccounts } = useAuthStore();
+  const accountId = activeAccountId ?? linkedAccounts[0]?.id ?? undefined;
 
   const { from, to } = React.useMemo(() => rangeFor(view, cursor), [view, cursor]);
   const { data: events, isLoading, error } = useCalendarEvents({ from, to });
@@ -502,6 +735,15 @@ export default function CalendarPage() {
   const goPrev = () => setCursor((c) => stepFor(view, c, -1));
   const goNext = () => setCursor((c) => stepFor(view, c, 1));
   const goToday = () => setCursor(startOfDay(new Date()));
+
+  const openCreate = () => {
+    // Seed with the cursor's date at the next whole hour of "now".
+    const now = new Date();
+    const seed = new Date(cursor);
+    seed.setHours(now.getHours() + 1, 0, 0, 0);
+    setCreateSeed(seed);
+    setCreateOpen(true);
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -514,6 +756,15 @@ export default function CalendarPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={openCreate}
+              disabled={!accountId}
+              className="flex items-center gap-1"
+            >
+              <Plus size={14} />
+              New event
+            </Button>
             <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
               {VIEW_OPTIONS.map((opt) => (
                 <button
@@ -579,6 +830,13 @@ export default function CalendarPage() {
           <DayView cursor={cursor} events={events ?? []} />
         )}
       </div>
+
+      <CreateEventModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        initialStart={createSeed}
+        accountId={accountId}
+      />
     </div>
   );
 }

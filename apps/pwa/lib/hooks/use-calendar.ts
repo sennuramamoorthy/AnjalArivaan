@@ -1,8 +1,9 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth-store';
 import * as calendarApi from '@/lib/api/calendar';
+import type { CreateCalendarEventInput } from '@/lib/api/calendar';
 
 export const calendarKeys = {
   all: ['calendar'] as const,
@@ -26,5 +27,16 @@ export function useCalendarEvents(opts: { from?: string; to?: string } = {}) {
         to: opts.to,
       }),
     enabled: !!accountId,
+  });
+}
+
+export function useCreateCalendarEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateCalendarEventInput) =>
+      calendarApi.createCalendarEvent(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: calendarKeys.all });
+    },
   });
 }

@@ -46,6 +46,28 @@ class ICalendarService(ABC):
         """
         ...
 
+    async def create_event(
+        self,
+        account_id: str,
+        user_id: str,
+        *,
+        summary: str,
+        start: datetime,
+        end: datetime,
+        description: Optional[str] = None,
+        location: Optional[str] = None,
+        attendees: Optional[list[dict]] = None,
+        calendar_id: str = "primary",
+    ) -> CalendarEvent:
+        """Create an event on ``account_id``'s calendar and return it.
+
+        ``attendees`` is a list of ``{"email": str, "name": Optional[str]}``
+        dicts. Implementations must respect per-account isolation: the
+        event must be created only on ``account_id``'s calendar, never
+        co-mingled with other linked accounts of the same user.
+        """
+        raise NotImplementedError
+
     async def list_events_for_range(
         self,
         account_id: str,

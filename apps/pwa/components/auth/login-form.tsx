@@ -55,8 +55,10 @@ export function LoginForm() {
         return;
       }
 
-      // Store tokens and user in zustand
-      setTokens(res.accessToken);
+      // Store tokens and user in zustand (refreshToken enables silent
+      // re-issue of the 15-min access token so the user isn't bounced to
+      // /login mid-session).
+      setTokens(res.accessToken, res.refreshToken);
       setUser({
         id: payload.sub,
         name: payload.email.split('@')[0], // fallback name from email
