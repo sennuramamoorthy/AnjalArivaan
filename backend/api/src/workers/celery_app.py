@@ -48,6 +48,15 @@ def create_celery_app() -> "Celery":
             "schedule": crontab(hour=6, minute=0),
             "options": {"queue": "default"},
         },
+        # Pre-warm the per-account briefing cache so the PWA dashboard
+        # serves a cached row instead of generating on the fly. Gated
+        # behind BRIEFING_BEAT_ENABLED=1 in the task module itself so
+        # pytest imports never register it.
+        "generate_daily_briefings_0600_ist": {
+            "task": "src.workers.tasks.generate_daily_briefings.generate_daily_briefings",
+            "schedule": crontab(hour=6, minute=0),
+            "options": {"queue": "default"},
+        },
     }
 
     return app

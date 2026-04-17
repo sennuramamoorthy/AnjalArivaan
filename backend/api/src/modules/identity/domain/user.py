@@ -40,6 +40,10 @@ class User:
     # Used by notification.MailEventHandler to decide who to forward urgent
     # government mail to. Resolved via user_repo at event time.
     line_manager_id: Optional[str] = None
+    # Phase 1a: single Gmail forward target for the urgency-escalation flow.
+    # Populated by admins via the super-admin console and persisted in the
+    # users.line_manager_email column (see migration 20260417_add_urgency).
+    line_manager_email: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

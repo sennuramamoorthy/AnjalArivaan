@@ -45,6 +45,8 @@ class MailSyncService:
         logger: Any,
         vector_store: Any = None,
         embedding_adapter: Any = None,
+        urgency_hook: Any = None,
+        search_indexing_service: Any = None,
     ) -> None:
         self._gmail = gmail_adapter
         self._vault = vault_adapter
@@ -57,6 +59,17 @@ class MailSyncService:
         # we skip embedding work silently and rely on OpenSearch for retrieval.
         self._vector_store = vector_store
         self._embedding_adapter = embedding_adapter
+        # Optional urgency-detection hook. Must expose an async
+        # ``on_new_mail(mail, account_id, user_id, trace_id)`` method. When
+        # unwired, mail sync just publishes the mail.new event and the
+        # (legacy) event handler does urgency work. When wired, sync also
+        # writes an urgency_outbox row synchronously so the Celery worker
+        # can dispatch WhatsApp + line-manager forward independently.
+        self._urgency_hook = urgency_hook
+        # Optional hybrid-search indexing service. Feeds each new message
+        # into per-account OpenSearch + Qdrant indices (D16). Failures are
+        # swallowed inside the service so sync continues unaffected.
+        self._search_indexing = search_indexing_service
 
     # ------------------------------------------------------------------
     # Public API
@@ -172,6 +185,15 @@ class MailSyncService:
         # unwired. D16: always targets the mail's own account collection.
         await self._maybe_upsert_embedding(mail, log)
 
+        # Best-effort BM25 + hybrid indexing. The indexing service owns
+        # its own try/except so sync continues even if OpenSearch is down
+        # (backfill job deferred to Phase 1b).
+        if self._search_indexing is not None:
+            try:
+                await self._search_indexing.index_message(mail.account_id, mail)
+            except Exception as exc:  # noqa: BLE001
+                log.warn("sync_message.search_index_skipped", error=str(exc))
+
         await self._handle_attachments(
             message=mail,
             attachments=attachments,
@@ -181,6 +203,22 @@ class MailSyncService:
         )
 
         await self._publish_new_mail_event(mail, user_id, trace_id)
+
+        # Run urgency detection inline (same unit-of-work as the mail save)
+        # so the outbox row is created iff the mail is persisted. Any
+        # exception here is swallowed — an urgency failure must never
+        # block mail sync (D1: Gmail is the system of record).
+        if self._urgency_hook is not None:
+            try:
+                await self._urgency_hook.on_new_mail(
+                    mail=mail,
+                    account_id=account_id,
+                    user_id=user_id,
+                    trace_id=trace_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warn("urgency_hook.failed", mail_id=mail.id, error=str(exc))
+
         log.info("sync_message.complete", mail_id=mail.id)
         return mail
 

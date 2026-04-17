@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Menu, Bell, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui-store';
@@ -11,6 +12,7 @@ const URGENT_COUNT = 2;
 
 export function Header() {
   const { toggleSidebar, setMobileNavOpen } = useUIStore();
+  const router = useRouter();
   const [searchOpen, setSearchOpen] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement>(null);
 
@@ -19,6 +21,10 @@ export function Header() {
       searchRef.current?.focus();
     }
   }, [searchOpen]);
+
+  const goToSearch = React.useCallback(() => {
+    router.push('/search');
+  }, [router]);
 
   return (
     <header
@@ -72,9 +78,12 @@ export function Header() {
             ref={searchRef}
             type="search"
             placeholder="Search emails, meetings..."
+            readOnly
+            onFocus={goToSearch}
+            onClick={goToSearch}
             className={cn(
               'w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-4 text-sm',
-              'placeholder:text-gray-400 text-gray-900',
+              'placeholder:text-gray-400 text-gray-900 cursor-pointer',
               'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent focus:bg-white',
               'dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:bg-gray-900',
               'transition-colors'
@@ -95,7 +104,7 @@ export function Header() {
       {/* Mobile search toggle */}
       {!searchOpen && (
         <button
-          onClick={() => setSearchOpen(true)}
+          onClick={goToSearch}
           className={cn(
             'sm:hidden flex h-9 w-9 items-center justify-center rounded-lg',
             'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800',

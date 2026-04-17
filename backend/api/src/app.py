@@ -5,6 +5,7 @@ Usage:
 """
 
 import uuid
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -314,6 +315,9 @@ def _wire_production(app: FastAPI, settings) -> None:
             object_storage=minio_adapter,
             message_bus=outbox_adapter,
             logger=logger,
+            # ``search_indexing_service`` is attached later in the
+            # composition pass once search+vector deps are wired; set by
+            # direct assignment to ``sync_service._search_indexing``.
         )
     except Exception as e:
         logger.warn(f"Mail module not fully wired: {e}")
@@ -327,6 +331,54 @@ def _wire_production(app: FastAPI, settings) -> None:
             app.state.search_service = SearchService(mail_repo_ref)
     except Exception as e:
         logger.warn(f"Search module not fully wired: {e}")
+
+    # ── Hybrid search wiring (BM25 + vectors, RRF) ──────────────────
+    # Feature-flagged on OPENSEARCH_URL; when unset we use the
+    # InMemorySearchAdapter so the endpoint still exercises end-to-end
+    # in dev/CI. Vector store is wired below, so we attach
+    # ``hybrid_retriever`` in a post-wire pass at the end of this fn.
+    try:
+        from src.modules.search.adapters.opensearch.in_memory_adapter import (
+            InMemorySearchAdapter,
+        )
+        from src.modules.search.adapters.embedding.http_embedding_adapter import (
+            HttpEmbeddingAdapter,
+        )
+        from src.modules.search.adapters.embedding.mock_embedding_adapter import (
+            MockEmbeddingAdapter,
+        )
+
+        opensearch_url = getattr(settings, "opensearch_url", None) or None
+        search_index: Any
+        if opensearch_url:
+            try:
+                from opensearchpy import OpenSearch  # type: ignore
+
+                from src.modules.search.adapters.opensearch.opensearch_adapter import (
+                    OpenSearchAdapter,
+                )
+
+                os_client = OpenSearch(hosts=[opensearch_url])
+                search_index = OpenSearchAdapter(client=os_client, logger=logger)
+            except Exception as exc:
+                logger.warn(
+                    f"OpenSearch unreachable — using InMemorySearchAdapter: {exc}"
+                )
+                search_index = InMemorySearchAdapter()
+        else:
+            search_index = InMemorySearchAdapter()
+
+        embed_endpoint = getattr(settings, "embedding_model_endpoint", None) or None
+        embedder = (
+            HttpEmbeddingAdapter(endpoint=embed_endpoint, logger=logger)
+            if embed_endpoint
+            else MockEmbeddingAdapter()
+        )
+
+        app.state.search_index = search_index
+        app.state.embedding_adapter = embedder
+    except Exception as e:
+        logger.warn(f"Hybrid search adapters not wired: {e}")
 
     # ── Vector store wiring (shared by AI, mail-sync, account-link) ─────
     # Real Qdrant when qdrant_url reaches a live instance; otherwise an
@@ -391,6 +443,59 @@ def _wire_production(app: FastAPI, settings) -> None:
         )
     except Exception as e:
         logger.warn(f"AI module not fully wired: {e}")
+
+    # ── Mail reply-draft service wiring ─────────────────────────────
+    # Multi-intent drafts (POST /mail/threads/{id}/ai-drafts). Uses the same
+    # LLM adapter the orchestrator uses; degrades gracefully if any dep is
+    # missing (route returns 503).
+    try:
+        from src.modules.mail.services.reply_draft_service import ReplyDraftService
+        from src.modules.ai.adapters.llm.vllm_adapter import VLLMAdapter
+
+        mail_repo_ref = getattr(app.state, "mail_repo", None)
+        sig_repo_ref = getattr(app.state, "signature_repo", None)
+        audit_repo_ref = getattr(app.state, "audit_repo", None)
+        llm_ref = getattr(
+            getattr(app.state, "orchestrator", None), "_llm", None
+        ) or VLLMAdapter(settings, logger=logger)
+        if mail_repo_ref and sig_repo_ref:
+            app.state.reply_draft_service = ReplyDraftService(
+                mail_repo=mail_repo_ref,
+                signature_repo=sig_repo_ref,
+                llm_adapter=llm_ref,
+                audit_repo=audit_repo_ref,
+                model_id=settings.vllm_model_id,
+                prompt_template_id="reply_draft_v1",
+                logger=logger,
+            )
+    except Exception as e:
+        logger.warn(f"Reply-draft service not wired: {e}")
+
+    # ── Briefing module wiring ──────────────────────────────────────
+    # Daily briefing: per-user, per-account synthesis stored encrypted
+    # at rest via EncryptedField. Lazy-backfilled on GET so the PWA
+    # dashboard works even before the 06:00 IST Celery-beat fan-out runs.
+    try:
+        from src.modules.briefing.repositories.postgres_briefing_repo import (
+            PostgresBriefingRepository,
+        )
+        from src.modules.briefing.services.briefing_generator_service import (
+            BriefingGeneratorService,
+        )
+        from src.shared.crypto.encrypted_field import EncryptedField
+
+        if app.state.db_pool:
+            app.state.briefing_repo = PostgresBriefingRepository(
+                app.state.db_pool,
+                encrypted_field=EncryptedField(settings.encryption_key),
+                logger=logger,
+            )
+            # Briefing service composes the existing adapters (mail/calendar/
+            # task) and the shared LLM adapter. Calendar + task_repo get
+            # wired below, so we defer construction to a post-wire pass.
+            app.state._briefing_bootstrap = True
+    except Exception as e:
+        logger.warn(f"Briefing module not fully wired: {e}")
 
     # ── Meeting module wiring (Google Calendar adapter) ─────────────
     try:
@@ -488,6 +593,115 @@ def _wire_production(app: FastAPI, settings) -> None:
     except Exception as e:
         logger.warn(f"Notification module not fully wired: {e}")
 
+    # ── Briefing service composition (after mail/calendar/task/llm wired) ─
+    try:
+        if getattr(app.state, "_briefing_bootstrap", False) and hasattr(
+            app.state, "briefing_repo"
+        ):
+            from src.modules.briefing.services.briefing_generator_service import (
+                BriefingGeneratorService,
+            )
+            from src.modules.ai.adapters.llm.vllm_adapter import VLLMAdapter
+
+            # Re-use the same LLM adapter instance the orchestrator uses so
+            # we honour a single vLLM connection pool / model_id.
+            llm = getattr(
+                app.state.orchestrator,
+                "_llm",
+                VLLMAdapter(settings, logger=logger),
+            ) if hasattr(app.state, "orchestrator") else VLLMAdapter(settings, logger=logger)
+
+            app.state.briefing_service = BriefingGeneratorService(
+                briefing_repo=app.state.briefing_repo,
+                llm_adapter=llm,
+                logger=logger,
+                mail_repo=getattr(app.state, "mail_repo", None),
+                calendar_service=getattr(app.state, "calendar_service", None),
+                task_repo=getattr(app.state, "task_repo", None),
+                travel_repo=None,  # Phase 1b
+                model_id=settings.vllm_model_id,
+            )
+    except Exception as e:
+        logger.warn(f"Briefing service composition failed: {e}")
+
+    # ── Hybrid search composition (after vector_store wired) ────────
+    try:
+        from src.modules.search.services.hybrid_retriever import (
+            HybridRetrieverService,
+        )
+        from src.modules.search.services.indexing_service import (
+            SearchIndexingService,
+        )
+
+        search_index_ref = getattr(app.state, "search_index", None)
+        embedder_ref = getattr(app.state, "embedding_adapter", None)
+        vector_store_ref = getattr(app.state, "vector_store", None)
+
+        if search_index_ref is not None and embedder_ref is not None:
+            app.state.hybrid_retriever = HybridRetrieverService(
+                search_index=search_index_ref,
+                vector_store=vector_store_ref,
+                embedding_adapter=embedder_ref,
+                logger=logger,
+            )
+            indexing = SearchIndexingService(
+                search_index=search_index_ref,
+                vector_store=vector_store_ref,
+                embedding_adapter=embedder_ref,
+                logger=logger,
+            )
+            app.state.search_indexing_service = indexing
+            # Back-attach onto the mail sync service so new messages flow
+            # into both OpenSearch and Qdrant as part of the sync transaction.
+            sync_svc = getattr(app.state, "sync_service", None)
+            if sync_svc is not None:
+                sync_svc._search_indexing = indexing
+    except Exception as e:
+        logger.warn(f"Hybrid search composition failed: {e}")
+
+    # ── AI Summary Service wiring ───────────────────────────────────
+    # Dedicated per-thread summary path (PWA ``ai-summary`` endpoint).
+    # Auto-selects MockLLMAdapter when VLLM_BASE_URL is unset so local
+    # dev works without a running vLLM — D2 remains trivially satisfied
+    # in either case (no prompts leave the process).
+    try:
+        from src.modules.ai.services.ai_summary_service import AiSummaryService
+        from src.modules.ai.adapters.llm.mock_llm_adapter import MockLLMAdapter
+        from src.modules.ai.adapters.llm.vllm_adapter import VLLMAdapter
+
+        vllm_base = (settings.vllm_base_url or "").strip()
+        if vllm_base:
+            summary_llm = VLLMAdapter(settings, logger=logger)
+            summary_model_id = settings.vllm_model_id
+        else:
+            logger.info("ai_summary.llm", adapter="MockLLMAdapter", reason="VLLM_BASE_URL unset")
+            summary_llm = MockLLMAdapter()
+            summary_model_id = "mock-llm-v1"
+
+        mail_repo_ref = getattr(app.state, "mail_repo", None)
+        role_repo_ref = None
+        try:
+            from src.modules.ai.repositories.postgres_role_template_repo import (
+                PostgresRoleTemplateRepo,
+            )
+            role_repo_ref = PostgresRoleTemplateRepo(settings, logger=logger)
+        except Exception:
+            role_repo_ref = None
+
+        if mail_repo_ref is not None:
+            app.state.ai_summary_service = AiSummaryService(
+                llm_adapter=summary_llm,
+                mail_repo=mail_repo_ref,
+                role_template_repo=role_repo_ref,
+                redis_client=getattr(app.state, "redis", None),
+                model_id=summary_model_id,
+                logger=logger,
+            )
+        else:
+            logger.warn("ai_summary_service not wired — mail_repo unavailable")
+    except Exception as e:
+        logger.warn(f"AiSummaryService wiring failed: {e}")
+
 
 def _register_routes(app: FastAPI) -> None:
     """Register all module route prefixes."""
@@ -508,6 +722,15 @@ def _register_routes(app: FastAPI) -> None:
     from src.modules.mail.routes.ai_routes import router as ai_mail_router
 
     app.include_router(ai_mail_router, prefix="/api/v1")
+
+    # Dedicated GET /mail/threads/{id}/ai-summary — owns that endpoint.
+    from src.modules.mail.routes.ai_summary_route import router as ai_summary_router
+
+    app.include_router(ai_summary_router, prefix="/api/v1")
+
+    from src.modules.mail.routes.ai_drafts_route import router as ai_drafts_router
+
+    app.include_router(ai_drafts_router, prefix="/api/v1")
 
     from src.modules.mail.routes.send_routes import router as mail_send_router
 

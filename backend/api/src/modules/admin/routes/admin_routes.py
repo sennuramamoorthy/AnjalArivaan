@@ -62,6 +62,65 @@ def _require_admin(user: dict, trace_id: str):
 # ── Audit log routes ─────────────────────────────────────────────────────────
 
 
+# ── Urgency escalation visibility ────────────────────────────────────────────
+
+
+@router.get("/admin/urgency-events")
+async def list_urgency_events(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Recent urgency_outbox rows — dispatched and pending. SUPER_ADMIN only."""
+    trace_id = _trace_id(request)
+
+    user = _get_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
+        )
+
+    forbidden = _require_admin(user, trace_id)
+    if forbidden:
+        return forbidden
+
+    repo = getattr(request.app.state, "urgency_outbox_repo", None)
+    if repo is None:
+        return JSONResponse(
+            status_code=503,
+            content=error_response(
+                "SERVICE_UNAVAILABLE", "Urgency outbox not available", trace_id
+            ),
+        )
+
+    rows = await repo.list_recent(limit=limit)
+    return success_response(
+        {
+            "events": [
+                {
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "account_id": r.account_id,
+                    "thread_id": r.thread_id,
+                    "message_id": r.message_id,
+                    "matched_rules": r.matched_rules,
+                    "reason": r.reason,
+                    "detected_deadline": r.detected_deadline,
+                    "line_manager_email": r.line_manager_email,
+                    "whatsapp_template": r.whatsapp_template,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+                    "attempts": r.attempts,
+                    "last_error": r.last_error,
+                }
+                for r in rows
+            ],
+            "count": len(rows),
+        },
+        trace_id,
+    )
+
+
 @router.get("/admin/audit-logs")
 async def list_audit_logs(
     request: Request,

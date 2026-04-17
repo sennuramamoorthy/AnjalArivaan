@@ -5,6 +5,11 @@ import { X, Send, Loader2, Sparkles, ChevronDown, ChevronUp } from 'lucide-react
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useSendReply, useRequestAiDraft } from '@/lib/hooks/use-mail';
+import {
+  useAiDrafts,
+  type AiDraftOption,
+  type DraftIntent,
+} from '@/lib/hooks/use-ai-drafts';
 import { useDefaultSignature } from '@/lib/hooks/use-auth';
 import { useAuthStore } from '@/store/auth-store';
 import type { ComposeMode, SendReplyPayload } from '@/lib/api/mail';
@@ -32,6 +37,21 @@ const MODE_LABEL: Record<ComposeMode, string> = {
   forward: 'Forward',
   compose: 'New Message',
 };
+
+function formatIntentLabel(intent: DraftIntent | string): string {
+  switch (intent) {
+    case 'acknowledge':
+      return 'Acknowledge';
+    case 'agree':
+      return 'Agree';
+    case 'decline':
+      return 'Decline';
+    case 'custom':
+      return 'Custom';
+    default:
+      return intent.charAt(0).toUpperCase() + intent.slice(1);
+  }
+}
 
 /**
  * Chip-style recipient editor.
@@ -141,6 +161,14 @@ export function InlineComposer({ threadId, initial, onClose, onSent }: InlineCom
   const { mutate: send, isPending } = useSendReply(threadId);
   const { mutate: requestDraft, isPending: draftLoading } = useRequestAiDraft(threadId);
 
+  // Multi-intent drafts (Acknowledge / Agree / Decline chips).
+  const {
+    mutate: requestMultiDrafts,
+    isPending: multiDraftLoading,
+    data: multiDrafts,
+    reset: resetMultiDrafts,
+  } = useAiDrafts(threadId);
+
   function handleSend() {
     setError(null);
     if (to.length === 0) {
@@ -167,6 +195,33 @@ export function InlineComposer({ threadId, initial, onClose, onSent }: InlineCom
         setError(message);
       },
     });
+  }
+
+  /**
+   * Kick off the multi-intent "Draft with AI" request. The backend returns
+   * three labeled drafts in one shot; clicking a chip populates the body.
+   * We seed with intent=acknowledge (the API requires a primary intent, but
+   * always returns all three). Skipped entirely for new-compose where there
+   * is no thread context.
+   */
+  function handleDraftWithAi() {
+    if (threadId === 'new') return;
+    setError(null);
+    resetMultiDrafts();
+    requestMultiDrafts(
+      { intent: 'acknowledge' },
+      {
+        onError: (err: unknown) => {
+          setError(
+            err instanceof Error ? err.message : 'Could not draft with AI. Try again.',
+          );
+        },
+      },
+    );
+  }
+
+  function applyDraftOption(option: AiDraftOption) {
+    setBody(option.body);
   }
 
   function handleAiDraft() {
@@ -304,7 +359,20 @@ export function InlineComposer({ threadId, initial, onClose, onSent }: InlineCom
               )}
               aria-label="AI draft instructions"
             />
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {threadId !== 'new' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDraftWithAi}
+                  isLoading={multiDraftLoading}
+                  disabled={multiDraftLoading}
+                  aria-label="Draft with AI — generate three intent-labeled drafts"
+                >
+                  <Sparkles size={13} />
+                  Draft with AI
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={handleAiDraft}
@@ -315,6 +383,34 @@ export function InlineComposer({ threadId, initial, onClose, onSent }: InlineCom
                 {body.trim() ? 'Regenerate Draft' : 'Generate Draft'}
               </Button>
             </div>
+
+            {multiDrafts && multiDrafts.drafts.length > 0 && (
+              <div
+                className="flex flex-wrap gap-1.5 pt-1"
+                role="radiogroup"
+                aria-label="AI draft intents"
+              >
+                {multiDrafts.drafts.map((option, idx) => {
+                  const label = formatIntentLabel(option.intent as DraftIntent);
+                  return (
+                    <button
+                      key={`${option.intent}-${idx}`}
+                      type="button"
+                      onClick={() => applyDraftOption(option)}
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium',
+                        'border-primary-300 bg-white text-primary-700 transition-colors',
+                        'hover:bg-primary-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
+                        'dark:border-primary-800 dark:bg-gray-900 dark:text-primary-300 dark:hover:bg-primary-900/30',
+                      )}
+                      title={option.body.slice(0, 140)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

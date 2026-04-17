@@ -1,7 +1,12 @@
-"""Search routes — mail search endpoint.
+"""Search routes — mail search endpoints.
 
-Phase 1a: wraps PostgreSQL ILIKE via SearchService.
-Phase 1b: will switch to OpenSearch hybrid retriever.
+Two endpoints live here:
+
+* ``GET /api/v1/search/mail`` — legacy Phase 1a Postgres-ILIKE search
+  delegating to ``SearchService``.
+* ``GET /api/v1/search`` — Phase 1a hybrid retriever (OpenSearch BM25 +
+  Qdrant vectors, RRF merge). D16: always account-scoped; returns 404
+  when the caller doesn't own the requested linked account.
 """
 
 import uuid
@@ -113,5 +118,102 @@ async def search_mail(
             "pageSize": result["pageSize"],
             "hasMore": result["hasMore"],
         },
+        trace_id,
+    )
+
+
+# ── Hybrid search (BM25 + vectors, RRF merged) ──────────────────────────────
+
+
+async def _owned_by_user(
+    request: Request, account_id: str, user_id: str
+) -> bool:
+    """Return True iff ``account_id`` exists AND belongs to ``user_id``.
+
+    Tolerates both repo styles: the real ``PostgresLinkedAccountRepository``
+    exposes ``find_by_id`` returning a ``LinkedAccount`` with
+    ``app_user_id``; a test double may expose ``get_by_id`` returning a
+    dict with ``user_id``.
+    """
+    repo = getattr(request.app.state, "linked_account_repo", None)
+    if repo is None:
+        # Without a repo we cannot enforce ownership; fail closed (D16).
+        return False
+    try:
+        if hasattr(repo, "find_by_id"):
+            row = await repo.find_by_id(account_id)
+        elif hasattr(repo, "get_by_id"):
+            row = await repo.get_by_id(account_id)
+        else:
+            return False
+    except Exception:
+        return False
+    if row is None:
+        return False
+    if isinstance(row, dict):
+        owner = row.get("user_id") or row.get("app_user_id")
+    else:
+        owner = getattr(row, "user_id", None) or getattr(row, "app_user_id", None)
+    return owner == user_id
+
+
+@router.get("/search")
+async def search_hybrid(
+    request: Request,
+    accountId: str = Query(...),
+    q: str = Query(""),
+    type: str = Query("all"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Hybrid search over mail + attachments for a single linked account."""
+    trace_id = _trace_id(request)
+
+    user = _get_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content=error_response("UNAUTHORIZED", "Not authenticated", trace_id),
+        )
+
+    if not q or not q.strip():
+        return JSONResponse(
+            status_code=400,
+            content=error_response("BAD_REQUEST", "q query parameter is required", trace_id),
+        )
+
+    if not await _owned_by_user(request, accountId, user["id"]):
+        # D16 / ownership guard: collapse "unknown account" and "foreign
+        # account" into a single 404 so we don't leak existence.
+        return JSONResponse(
+            status_code=404,
+            content=error_response("ACCOUNT_NOT_FOUND", "Linked account not found", trace_id),
+        )
+
+    retriever = getattr(request.app.state, "hybrid_retriever", None)
+    if retriever is None:
+        return JSONResponse(
+            status_code=503,
+            content=error_response(
+                "SERVICE_UNAVAILABLE", "Hybrid search not configured", trace_id
+            ),
+        )
+
+    try:
+        results = await retriever.search(
+            query=q,
+            account_id=accountId,
+            doc_type=type,
+            limit=limit,
+            trace_id=trace_id,
+            user_id=user["id"],
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content=error_response("BAD_REQUEST", str(exc), trace_id),
+        )
+
+    return success_response(
+        {"results": results, "accountId": accountId, "query": q, "type": type},
         trace_id,
     )

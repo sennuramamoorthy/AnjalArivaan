@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     vllm_timeout_seconds: float = 120.0
     embedding_model: str = "BAAI/bge-m3"
     embedding_service_url: str = "http://localhost:8001"
+    # Hybrid-search bge-m3 endpoint (POST {model, input} -> {embedding}).
+    # When unset the search module falls back to MockEmbeddingAdapter.
+    embedding_model_endpoint: str = ""
     opensearch_url: str = "http://localhost:9200"
     max_input_chars: int = 150_000
     max_output_chars: int = 10_000

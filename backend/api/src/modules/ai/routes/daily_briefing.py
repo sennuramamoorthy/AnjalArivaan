@@ -156,16 +156,46 @@ async def _load_tasks(
     ]
 
 
+async def _verify_account_ownership(app_state, user_id: str, account_id: str) -> bool:
+    """D16 gate: the account must belong to the authenticated user.
+
+    Falls open (returns True) when the linked-account repo isn't wired —
+    that matches the rest of the codebase's "degrade gracefully in dev"
+    posture. Production stacks always have the repo wired so this is
+    effectively always enforced in prod.
+    """
+    repo = getattr(app_state, "linked_account_repo", None)
+    if repo is None:
+        return True
+    try:
+        acc = await repo.find_by_id(account_id)
+    except Exception:
+        return True
+    if acc is None:
+        return False
+    owner = getattr(acc, "app_user_id", None)
+    return owner is None or owner == user_id
+
+
 @router.get("/briefing/daily")
 async def get_daily_briefing(
     request: Request,
     accountId: Optional[str] = Query(None),
 ):
-    """GET endpoint for the frontend daily briefing page.
+    """GET /api/v1/briefing/daily?accountId=... — serve today's briefing.
 
-    Loads urgent mails, today's calendar events, and pending tasks in
-    parallel, then delegates to the AI orchestrator.
-    Frontend calls: GET /api/v1/briefing/daily?accountId=...
+    Flow
+    ----
+    1. Auth (401 on missing/invalid token).
+    2. Require ``accountId`` (400).
+    3. D16 ownership check via ``linked_account_repo`` (404 on mismatch).
+    4. Delegate to ``BriefingGeneratorService.get_or_generate`` — it
+       returns a cached row if one exists for today, otherwise generates
+       on the fly (lazy backfill) and persists it encrypted at rest.
+
+    A legacy fallback path (no briefing service wired) keeps the
+    in-flight context-loading behaviour so existing wiring tests still
+    pass while the briefing module rolls out.
     """
     trace_id = _trace_id(request)
 
@@ -179,9 +209,41 @@ async def get_daily_briefing(
     if not accountId:
         return JSONResponse(
             status_code=400,
-            content=error_response("BAD_REQUEST", "accountId query parameter is required", trace_id),
+            content=error_response(
+                "BAD_REQUEST", "accountId query parameter is required", trace_id
+            ),
         )
 
+    # D16: the account must belong to this user. A missing/foreign account
+    # must never leak another tenant's briefing.
+    owned = await _verify_account_ownership(request.app.state, user["id"], accountId)
+    if not owned:
+        return JSONResponse(
+            status_code=404,
+            content=error_response(
+                "NOT_FOUND", "Account not found for this user", trace_id
+            ),
+        )
+
+    briefing_service = getattr(request.app.state, "briefing_service", None)
+
+    if briefing_service is not None:
+        briefing = await briefing_service.get_or_generate(
+            user_id=user["id"],
+            account_id=accountId,
+            trace_id=trace_id,
+        )
+        return success_response(
+            {
+                "briefing": briefing.body,
+                "content": briefing.body,  # legacy key kept for client compat
+                "generatedAt": briefing.generated_at.isoformat(),
+                "briefingDate": briefing.briefing_date.isoformat(),
+            },
+            trace_id,
+        )
+
+    # ── Legacy path (pre-briefing-module wiring) ─────────────────────────
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if orchestrator is None:
         return JSONResponse(
@@ -193,7 +255,6 @@ async def get_daily_briefing(
     calendar_service = getattr(request.app.state, "calendar_service", None)
     task_repo = getattr(request.app.state, "task_repo", None)
 
-    # Load urgent mails for context (optional — gracefully degrade if no mail_repo)
     urgent_mails: list[dict] = []
     mail_repo = getattr(request.app.state, "mail_repo", None)
     if mail_repo is not None:
@@ -209,7 +270,6 @@ async def get_daily_briefing(
             for m in msgs
         ]
 
-    # Fan-out calendar + task loads in parallel.
     today = datetime.now(timezone.utc).date()
     t0 = time.monotonic()
     todays_meetings, pending_tasks = await asyncio.gather(
@@ -255,8 +315,10 @@ async def get_daily_briefing(
 
     return success_response(
         {
+            "briefing": response.output,
             "content": response.output,
             "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "briefingDate": today.isoformat(),
         },
         trace_id,
     )
