@@ -3,7 +3,7 @@
 Per D10 the primary creation channel for tasks is email-driven (on the
 mail-sync side). These routes are the supplementary CRUD plumbing used by
 the PWA and the admin console. Ownership for a Task is a simple identity
-check: ``task.assigned_to == caller.id``. Foreign-task access returns 404
+check: ``task.assignee_id == caller.id``. Foreign-task access returns 404
 (never 403) to avoid leaking the existence of other users' tasks.
 """
 
@@ -27,17 +27,21 @@ router = APIRouter()
 
 # ── Pydantic input models ────────────────────────────────────────────────────
 
-TaskStatus = Literal["PENDING", "IN_PROGRESS", "COMPLETE", "CANCELLED"]
+TaskStatus = Literal["OPEN", "IN_PROGRESS", "DONE", "OVERDUE", "CANCELLED"]
 
 
 class CreateTaskInput(BaseModel):
-    title: str = Field(min_length=1, max_length=500)
+    subject: str = Field(min_length=1, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=5000)
     due_at: Optional[datetime] = None
     source_mail_id: Optional[str] = None
+    # When the caller assigns to somebody else; if omitted we assign to self.
+    assignee_id: Optional[str] = None
 
 
 class UpdateTaskInput(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    subject: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=5000)
     status: Optional[TaskStatus] = None
     due_at: Optional[datetime] = None
 
@@ -108,11 +112,14 @@ async def _audit(
 def _task_to_dict(t: Task) -> dict:
     return {
         "id": t.id,
-        "title": t.title,
+        "subject": t.subject,
+        "description": t.description,
         "status": t.status,
         "dueAt": t.due_at.isoformat() if t.due_at else None,
-        "assignedTo": t.assigned_to,
+        "assigneeId": t.assignee_id,
+        "assignerId": t.assigner_id,
         "sourceMailId": t.source_mail_id,
+        "replyToken": t.reply_token,
     }
 
 
@@ -196,7 +203,7 @@ async def get_task(task_id: str, request: Request):
 
     task = await repo.find_by_id(task_id)
     # Ownership check: foreign tasks return 404, not 403 (no existence leak).
-    if task is None or task.assigned_to != user["id"]:
+    if task is None or task.assignee_id != user["id"]:
         return _not_found(trace_id)
 
     _log(
@@ -240,11 +247,13 @@ async def create_task(request: Request):
     try:
         task = await repo.create(
             {
-                "title": payload.title,
+                "subject": payload.subject,
+                "description": payload.description,
                 "due_at": payload.due_at,
                 "source_mail_id": payload.source_mail_id,
-                "assigned_to": user["id"],
-                "status": "PENDING",
+                "assignee_id": payload.assignee_id or user["id"],
+                "assigner_id": user["id"],
+                "status": "OPEN",
             }
         )
     except ValidationError as e:
@@ -259,10 +268,11 @@ async def create_task(request: Request):
         action="TASK_CREATE",
         target=task.id,
         after={
-            "title": task.title,
+            "subject": task.subject,
             "status": task.status,
             "dueAt": task.due_at.isoformat() if task.due_at else None,
             "sourceMailId": task.source_mail_id,
+            "assigneeId": task.assignee_id,
         },
     )
 
@@ -291,7 +301,7 @@ async def update_task(task_id: str, request: Request):
 
     existing = await repo.find_by_id(task_id)
     # Ownership: foreign tasks return 404 (no existence leak).
-    if existing is None or existing.assigned_to != user["id"]:
+    if existing is None or existing.assignee_id != user["id"]:
         return _not_found(trace_id)
 
     try:
@@ -370,7 +380,7 @@ async def delete_task(task_id: str, request: Request):
         return _service_unavailable(trace_id)
 
     existing = await repo.find_by_id(task_id)
-    if existing is None or existing.assigned_to != user["id"]:
+    if existing is None or existing.assignee_id != user["id"]:
         return _not_found(trace_id)
 
     deleted = await repo.delete(task_id)
@@ -383,7 +393,7 @@ async def delete_task(task_id: str, request: Request):
         action="TASK_DELETE",
         target=task_id,
         before={
-            "title": existing.title,
+            "subject": existing.subject,
             "status": existing.status,
             "dueAt": existing.due_at.isoformat() if existing.due_at else None,
         },

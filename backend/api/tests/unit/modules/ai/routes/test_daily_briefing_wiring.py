@@ -87,12 +87,22 @@ def _make_event(**over) -> CalendarEvent:
 def _make_task(**over) -> Task:
     base = dict(
         id="task-1",
-        title="Sign off on exam schedule",
-        status="PENDING",
+        assigner_id="user-1",
+        assignee_id="user-1",
+        subject="Sign off on exam schedule",
+        description=None,
+        status="OPEN",
         due_at=datetime(2026, 4, 17, 12, 0, tzinfo=timezone.utc),
-        assigned_to="user-1",
         source_mail_id="m-1",
+        reply_token=None,
     )
+    # Legacy kwargs from old tests
+    if "title" in over:
+        base["subject"] = over.pop("title")
+    if "assigned_to" in over:
+        assignee = over.pop("assigned_to")
+        base["assignee_id"] = assignee
+        base["assigner_id"] = assignee
     base.update(over)
     return Task(**base)
 

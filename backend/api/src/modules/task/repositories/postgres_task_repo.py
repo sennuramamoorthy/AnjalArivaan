@@ -1,9 +1,15 @@
 """PostgreSQL task repository.
 
-Reads/writes the ``tasks`` table. In Phase 1 the table may not yet exist
-in every environment — read paths degrade gracefully to empty/None + a
-warning log so the daily briefing still renders; write paths surface the
-error so the caller returns a 5xx rather than silently succeeding.
+Reads/writes the ``tasks`` table as defined by the Prisma schema. Columns:
+``id, assigner_id, assignee_id, subject, description, due_at, status,
+source_mail_id, reply_token, created_at, updated_at``. ``status`` is a
+Postgres enum type (``TaskStatus``) — string values are cast with
+``::"TaskStatus"``.
+
+Read paths degrade gracefully (empty + warn log) when the table is missing
+so the daily briefing still renders in environments where migrations have
+not yet run; write paths surface the error so callers return a 5xx rather
+than silently succeeding.
 """
 
 from __future__ import annotations
@@ -25,7 +31,10 @@ from src.shared.domain.errors import ValidationError
 # Fields accepted by `update(data=...)`. Anything else is silently dropped
 # so a route accidentally forwarding untrusted keys into the repo cannot
 # build arbitrary UPDATE columns.
-_UPDATABLE_COLUMNS = {"title", "status", "due_at"}
+_UPDATABLE_COLUMNS = {"subject", "description", "status", "due_at"}
+
+# Columns that need the ::"TaskStatus" enum cast.
+_ENUM_COLUMNS = {"status"}
 
 
 class PostgresTaskRepository(ITaskRepository):
@@ -36,13 +45,18 @@ class PostgresTaskRepository(ITaskRepository):
     def _row_to_task(self, row: dict) -> Task:
         return Task(
             id=str(row["id"]),
-            title=row["title"],
-            status=row.get("status", "PENDING"),
+            assigner_id=str(row["assigner_id"]) if row.get("assigner_id") else "",
+            assignee_id=str(row["assignee_id"]) if row.get("assignee_id") else "",
+            subject=row["subject"],
+            description=row.get("description"),
+            status=row.get("status", "OPEN"),
             due_at=row.get("due_at"),
-            assigned_to=str(row["assigned_to"]) if row.get("assigned_to") else None,
             source_mail_id=str(row["source_mail_id"])
             if row.get("source_mail_id")
             else None,
+            reply_token=row.get("reply_token"),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
         )
 
     def _warn(self, event: str, **fields) -> None:
@@ -54,8 +68,8 @@ class PostgresTaskRepository(ITaskRepository):
 
     # ── Reads ──────────────────────────────────────────────────────────────
 
-    async def list_pending_for_user(self, user_id: str) -> list[Task]:
-        return await self.list_for_user(user_id, status="PENDING")
+    async def list_open_for_user(self, user_id: str) -> list[Task]:
+        return await self.list_for_user(user_id, status="OPEN")
 
     async def find_by_id(self, task_id: str) -> Optional[Task]:
         conn = self._pool.getconn()
@@ -64,8 +78,9 @@ class PostgresTaskRepository(ITaskRepository):
                 try:
                     cur.execute(
                         """
-                        SELECT id, title, status, due_at, assigned_to,
-                               source_mail_id, created_at, updated_at
+                        SELECT id, assigner_id, assignee_id, subject, description,
+                               due_at, status::text AS status, source_mail_id,
+                               reply_token, created_at, updated_at
                         FROM tasks
                         WHERE id = %s
                         """,
@@ -97,10 +112,11 @@ class PostgresTaskRepository(ITaskRepository):
                     if status is not None:
                         cur.execute(
                             """
-                            SELECT id, title, status, due_at, assigned_to,
-                                   source_mail_id, created_at, updated_at
+                            SELECT id, assigner_id, assignee_id, subject, description,
+                                   due_at, status::text AS status, source_mail_id,
+                                   reply_token, created_at, updated_at
                             FROM tasks
-                            WHERE assigned_to = %s AND status = %s
+                            WHERE assignee_id = %s AND status = %s::"TaskStatus"
                             ORDER BY due_at ASC NULLS LAST, updated_at DESC
                             LIMIT %s
                             """,
@@ -109,10 +125,11 @@ class PostgresTaskRepository(ITaskRepository):
                     else:
                         cur.execute(
                             """
-                            SELECT id, title, status, due_at, assigned_to,
-                                   source_mail_id, created_at, updated_at
+                            SELECT id, assigner_id, assignee_id, subject, description,
+                                   due_at, status::text AS status, source_mail_id,
+                                   reply_token, created_at, updated_at
                             FROM tasks
-                            WHERE assigned_to = %s
+                            WHERE assignee_id = %s
                             ORDER BY due_at ASC NULLS LAST, updated_at DESC
                             LIMIT %s
                             """,
@@ -141,29 +158,35 @@ class PostgresTaskRepository(ITaskRepository):
     # ── Writes ─────────────────────────────────────────────────────────────
 
     async def create(self, data: dict) -> Task:
-        status = data.get("status", "PENDING")
+        status = data.get("status", "OPEN")
         if status not in TASK_STATUS_VALUES:
             raise ValidationError(f"Invalid status: {status}")
 
         task_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
+        assignee_id = data["assignee_id"]
+        assigner_id = data.get("assigner_id") or assignee_id
+
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO tasks
-                        (id, title, status, due_at, assigned_to, source_mail_id,
-                         created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        (id, assigner_id, assignee_id, subject, description, due_at,
+                         status, source_mail_id, reply_token, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s::"TaskStatus", %s, %s, %s, %s)
                     """,
                     (
                         task_id,
-                        data["title"],
-                        status,
+                        assigner_id,
+                        assignee_id,
+                        data["subject"],
+                        data.get("description"),
                         data.get("due_at"),
-                        data["assigned_to"],
+                        status,
                         data.get("source_mail_id"),
+                        data.get("reply_token"),
                         now,
                         now,
                     ),
@@ -171,11 +194,16 @@ class PostgresTaskRepository(ITaskRepository):
                 conn.commit()
             return Task(
                 id=task_id,
-                title=data["title"],
+                assigner_id=assigner_id,
+                assignee_id=assignee_id,
+                subject=data["subject"],
+                description=data.get("description"),
                 status=status,
                 due_at=data.get("due_at"),
-                assigned_to=data["assigned_to"],
                 source_mail_id=data.get("source_mail_id"),
+                reply_token=data.get("reply_token"),
+                created_at=now,
+                updated_at=now,
             )
         finally:
             self._pool.putconn(conn)
@@ -195,7 +223,10 @@ class PostgresTaskRepository(ITaskRepository):
         set_clauses = []
         values: list = []
         for key, value in safe.items():
-            set_clauses.append(f"{key} = %s")
+            if key in _ENUM_COLUMNS:
+                set_clauses.append(f'{key} = %s::"TaskStatus"')
+            else:
+                set_clauses.append(f"{key} = %s")
             values.append(value)
         set_clauses.append("updated_at = %s")
         values.append(datetime.now(timezone.utc))

@@ -15,8 +15,8 @@ from src.shared.domain.errors import ValidationError
 
 
 # Fields a route is allowed to hand to `update`. Anything outside this set
-# is silently dropped so callers cannot mutate assigned_to, id, etc.
-_UPDATABLE_FIELDS = {"title", "status", "due_at"}
+# is silently dropped so callers cannot mutate assignee_id, id, etc.
+_UPDATABLE_FIELDS = {"subject", "description", "status", "due_at"}
 
 
 class InMemoryTaskRepository(ITaskRepository):
@@ -28,11 +28,11 @@ class InMemoryTaskRepository(ITaskRepository):
         self._tasks[task.id] = task
         return task
 
-    async def list_pending_for_user(self, user_id: str) -> list[Task]:
+    async def list_open_for_user(self, user_id: str) -> list[Task]:
         return [
             t
             for t in self._tasks.values()
-            if t.assigned_to == user_id and t.status == "PENDING"
+            if t.assignee_id == user_id and t.status == "OPEN"
         ]
 
     async def find_by_id(self, task_id: str) -> Optional[Task]:
@@ -41,7 +41,7 @@ class InMemoryTaskRepository(ITaskRepository):
     async def list_for_user(
         self, user_id: str, status: Optional[str] = None, limit: int = 50
     ) -> list[Task]:
-        items = [t for t in self._tasks.values() if t.assigned_to == user_id]
+        items = [t for t in self._tasks.values() if t.assignee_id == user_id]
         if status is not None:
             items = [t for t in items if t.status == status]
         # Sort by due_at ascending (None last), then by id for stability
@@ -49,16 +49,22 @@ class InMemoryTaskRepository(ITaskRepository):
         return items[:limit]
 
     async def create(self, data: dict) -> Task:
-        status = data.get("status", "PENDING")
+        status = data.get("status", "OPEN")
         if status not in TASK_STATUS_VALUES:
             raise ValidationError(f"Invalid status: {status}")
+        now = datetime.now(timezone.utc)
         task = Task(
             id=str(uuid.uuid4()),
-            title=data["title"],
+            assigner_id=data.get("assigner_id") or data["assignee_id"],
+            assignee_id=data["assignee_id"],
+            subject=data["subject"],
+            description=data.get("description"),
             status=status,
             due_at=data.get("due_at"),
-            assigned_to=data["assigned_to"],
             source_mail_id=data.get("source_mail_id"),
+            reply_token=data.get("reply_token"),
+            created_at=now,
+            updated_at=now,
         )
         self._tasks[task.id] = task
         return task
@@ -70,6 +76,7 @@ class InMemoryTaskRepository(ITaskRepository):
         if existing is None:
             return None
         existing.status = status
+        existing.updated_at = datetime.now(timezone.utc)
         return existing
 
     async def update(self, task_id: str, data: dict) -> Optional[Task]:
@@ -81,6 +88,7 @@ class InMemoryTaskRepository(ITaskRepository):
             raise ValidationError(f"Invalid status: {safe['status']}")
         for k, v in safe.items():
             setattr(existing, k, v)
+        existing.updated_at = datetime.now(timezone.utc)
         return existing
 
     async def delete(self, task_id: str) -> bool:

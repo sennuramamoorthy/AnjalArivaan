@@ -127,7 +127,7 @@ async def _load_tasks(
             )
         return []
     try:
-        tasks = await task_repo.list_pending_for_user(user_id)
+        tasks = await task_repo.list_open_for_user(user_id)
     except Exception as e:
         if logger is not None:
             logger.error(
@@ -141,10 +141,15 @@ async def _load_tasks(
     return [
         {
             "id": t.id,
-            "title": t.title,
+            # The briefing template accepts either `title` or `subject` — emit
+            # both so prompt authors can reference whichever reads more natural.
+            "title": t.subject,
+            "subject": t.subject,
+            "description": t.description,
             "status": t.status,
             "due_at": t.due_at.isoformat() if t.due_at else None,
-            "assigned_to": t.assigned_to,
+            "assignee_id": t.assignee_id,
+            "assigner_id": t.assigner_id,
             "source_mail_id": t.source_mail_id,
         }
         for t in tasks
