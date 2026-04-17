@@ -28,6 +28,7 @@ const MODE_LABEL: Record<ComposeMode, string> = {
   reply: 'Reply',
   replyAll: 'Reply all',
   forward: 'Forward',
+  compose: 'New message',
 };
 
 /**

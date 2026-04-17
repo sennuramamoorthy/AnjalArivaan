@@ -228,9 +228,28 @@ def _wire_production(app: FastAPI, settings) -> None:
                 client_id=settings.google_client_id,
                 client_secret=settings.google_client_secret,
             )
-            db_token_adapter = AccountLinkDbTokenAdapter(
-                encryption_key_hex=settings.encryption_key,
-            )
+            # Strategy: prefer real HashiCorp Vault when a VAULT_ADDR is set
+            # and reachable; fall back to the Postgres-encrypted token store
+            # for local dev so the stack still boots without a Vault server.
+            token_broker: Any
+            try:
+                if settings.vault_addr and settings.vault_token:
+                    from src.modules.account_link.adapters.vault.vault_adapter import (
+                        VaultAdapter,
+                    )
+                    token_broker = VaultAdapter(
+                        vault_addr=settings.vault_addr,
+                        vault_token=settings.vault_token,
+                        logger=logger,
+                    )
+                    logger.info("Token broker: HashiCorp Vault", addr=settings.vault_addr)
+                else:
+                    raise RuntimeError("Vault not configured")
+            except Exception as e:
+                logger.warn(f"Vault not available ({e}); falling back to DB token broker")
+                token_broker = AccountLinkDbTokenAdapter(
+                    encryption_key_hex=settings.encryption_key,
+                )
             linked_account_repo = PostgresLinkedAccountRepository(dsn=settings.database_url)
             app.state.linked_account_repo = linked_account_repo
 
@@ -238,7 +257,7 @@ def _wire_production(app: FastAPI, settings) -> None:
                 repo=linked_account_repo,
                 google_oauth=google_oauth_adapter,
                 redis_client=app.state.redis,
-                vault_adapter=db_token_adapter,
+                vault_adapter=token_broker,
                 logger=logger,
             )
         else:
@@ -274,8 +293,14 @@ def _wire_production(app: FastAPI, settings) -> None:
             secure=settings.minio_secure,
         )
         minio_adapter = MinioAdapter(client=minio_client, logger=logger)
+        from src.shared.crypto.encrypted_field import EncryptedField
         mail_repo = PostgresMailRepository(
-            conn_string=settings.database_url, logger=logger
+            conn_string=settings.database_url,
+            logger=logger,
+            # Field-level encryption for subject / body_text / body_html
+            # — required by CLAUDE.md security rules (attachment OCR +
+            # email body encryption at rest).
+            encrypted_field=EncryptedField(settings.encryption_key),
         )
 
         app.state.mail_repo = mail_repo

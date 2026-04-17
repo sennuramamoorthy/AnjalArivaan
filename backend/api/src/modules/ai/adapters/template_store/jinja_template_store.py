@@ -8,6 +8,9 @@ class JinjaTemplateStore(IPromptTemplateStore):
     """
     Loads Jinja2 templates from the prompts/ directory.
     Each template file is named <template_id>.j2
+
+    Design pattern: **Registry** / **Flyweight** — template IDs map to compiled
+    Jinja templates cached by the Environment loader and shared across calls.
     """
 
     def __init__(self, prompts_dir: str | Path | None = None) -> None:

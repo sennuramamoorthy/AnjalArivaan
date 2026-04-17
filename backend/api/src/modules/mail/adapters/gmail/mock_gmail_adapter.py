@@ -1,4 +1,8 @@
-"""MockGmailAdapter — returns configurable fake responses for tests."""
+"""MockGmailAdapter — returns configurable fake responses for tests.
+
+Design pattern: **Test Double** — in-memory implementation of IGmailAdapter
+used by unit tests to avoid real Google API I/O.
+"""
 
 from typing import Any
 
@@ -30,6 +34,7 @@ class MockGmailAdapter(IGmailAdapter):
         access_token: str,
         max_results: int = 50,
         page_token: str | None = None,
+        include_spam_trash: bool = False,
     ) -> dict[str, Any]:
         msgs = [{"id": m["id"], "threadId": m.get("threadId", "")} for m in self._messages]
         return {"messages": msgs, "resultSizeEstimate": len(msgs)}

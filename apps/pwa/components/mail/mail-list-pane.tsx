@@ -58,7 +58,7 @@ const FOLDER_META: Record<
   all: { title: 'All Mail', icon: Mail, emptyHint: 'No mail in this account.' },
 };
 
-const FOLDER_VALUES: ReadonlySet<MailFolder> = new Set([
+const FOLDER_VALUES: ReadonlySet<MailFolder> = new Set<MailFolder>([
   'inbox',
   'sent',
   'drafts',

@@ -1,6 +1,10 @@
 """
 UrgencyNotificationService — orchestrates rule evaluation and dispatch.
 
+Design pattern: **Observer / Event-Driven Consumer** — subscribes to new-mail
+events from the outbox and reacts by evaluating urgency rules and fanning out
+WhatsApp + line-manager notifications.
+
 Flow per new mail:
   1. Load user + role + line-manager info
   2. Load urgency rules for that role

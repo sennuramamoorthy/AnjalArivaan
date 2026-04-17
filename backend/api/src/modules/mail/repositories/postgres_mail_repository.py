@@ -13,17 +13,37 @@ import psycopg2  # type: ignore[import]
 import psycopg2.extras  # type: ignore[import]
 
 from src.modules.mail.domain.mail_message import MailMessage, UrgencyLevel
+from src.shared.crypto.encrypted_field import EncryptedField
 from .interface import IMailRepository
+
+
+# Columns encrypted at rest (per Prisma schema `// ENCRYPTED` annotations
+# and the tdd-standards Encryption-at-Rest rule). Search over these is
+# handled by OpenSearch on decrypted text, never by SQL ILIKE.
+_ENCRYPTED_COLUMNS: tuple[str, ...] = ("subject", "body_text", "body_html")
 
 
 class PostgresMailRepository(IMailRepository):
     """
     Stores MailMessage records in the ``mail_messages`` Postgres table.
+
+    Design pattern: **Repository + Field-Level Encryption Adapter**.
+    Sensitive columns (subject/body_text/body_html) are encrypted on
+    write and decrypted on read via an injected ``EncryptedField`` so
+    the persistence layer — not individual services — owns the policy.
     """
 
-    def __init__(self, conn_string: str, logger: Any) -> None:
+    def __init__(
+        self,
+        conn_string: str,
+        logger: Any,
+        encrypted_field: EncryptedField | None = None,
+    ) -> None:
         self._conn_string = conn_string
         self._logger = logger
+        # If no EncryptedField is provided we refuse to persist sensitive
+        # data in plaintext — callers must wire one in from settings.
+        self._ef = encrypted_field
 
     def _get_conn(self):
         return psycopg2.connect(self._conn_string, cursor_factory=psycopg2.extras.RealDictCursor)
@@ -35,6 +55,29 @@ class PostgresMailRepository(IMailRepository):
         return message
 
     def _save_sync(self, message: MailMessage) -> None:
+        params = {
+            "id": message.id,
+            "account_id": message.account_id,
+            "gmail_msg_id": message.gmail_msg_id,
+            "thread_id": message.thread_id,
+            "from_address": message.from_address,
+            "to_addresses": list(message.to_addresses or []),
+            "cc_addresses": list(message.cc_addresses or []),
+            "subject": message.subject,
+            "body_text": message.body_text,
+            "body_html": message.body_html,
+            "received_at": message.received_at,
+            "labels": list(message.labels or []),
+            "has_attachment": message.has_attachment,
+            "urgency_level": message.urgency_level.value,
+            "urgency_score": message.urgency_score,
+            "is_read": message.is_read,
+        }
+        # Encrypt sensitive columns just before the INSERT — plaintext
+        # never touches the database.
+        if self._ef is not None:
+            self._ef.encrypt_dict(params, fields=_ENCRYPTED_COLUMNS)
+
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -54,24 +97,7 @@ class PostgresMailRepository(IMailRepository):
                     )
                     ON CONFLICT (gmail_msg_id, account_id) DO NOTHING
                     """,
-                    {
-                        "id": message.id,
-                        "account_id": message.account_id,
-                        "gmail_msg_id": message.gmail_msg_id,
-                        "thread_id": message.thread_id,
-                        "from_address": message.from_address,
-                        "to_addresses": list(message.to_addresses or []),
-                        "cc_addresses": list(message.cc_addresses or []),
-                        "subject": message.subject,
-                        "body_text": message.body_text,
-                        "body_html": message.body_html,
-                        "received_at": message.received_at,
-                        "labels": list(message.labels or []),
-                        "has_attachment": message.has_attachment,
-                        "urgency_level": message.urgency_level.value,
-                        "urgency_score": message.urgency_score,
-                        "is_read": message.is_read,
-                    },
+                    params,
                 )
             conn.commit()
 
@@ -166,8 +192,13 @@ class PostgresMailRepository(IMailRepository):
 
         if search:
             pattern = f"%{search}%"
-            where += " AND (subject ILIKE %s OR from_address ILIKE %s OR body_text ILIKE %s)"
-            params.extend([pattern, pattern, pattern])
+            # NOTE: subject / body_text are encrypted at rest so they are
+            # NOT searchable via ILIKE. Full-text search over mail content
+            # goes through the OpenSearch-backed Search service (which
+            # indexes decrypted text behind its own access controls).
+            # Here we only match non-sensitive columns.
+            where += " AND from_address ILIKE %s"
+            params.append(pattern)
 
         with self._get_conn() as conn:
             with conn.cursor() as cur:
@@ -175,11 +206,13 @@ class PostgresMailRepository(IMailRepository):
                 total = cur.fetchone()["total"]
 
                 # Whitelisted sort — never interpolate untrusted sort strings.
+                # `subject` is ciphertext so sorting by it would sort on
+                # random bytes; fall back to received_at for that choice.
                 order_by = {
                     "newest": "received_at DESC",
                     "oldest": "received_at ASC",
                     "sender": "LOWER(from_address) ASC, received_at DESC",
-                    "subject": "LOWER(subject) ASC, received_at DESC",
+                    "subject": "received_at DESC",
                 }.get((sort or "newest").lower(), "received_at DESC")
 
                 offset = (page - 1) * page_size
@@ -262,8 +295,15 @@ class PostgresMailRepository(IMailRepository):
                 conn.commit()
                 return cur.rowcount
 
-    @staticmethod
-    def _row_to_domain(row: dict[str, Any]) -> MailMessage:
+    def _row_to_domain(self, row: dict[str, Any]) -> MailMessage:
+        # Decrypt sensitive columns on the way out so callers see plaintext.
+        subject = row["subject"]
+        body_text = row["body_text"]
+        body_html = row["body_html"]
+        if self._ef is not None:
+            subject = self._ef.decrypt(subject)
+            body_text = self._ef.decrypt(body_text)
+            body_html = self._ef.decrypt(body_html)
         return MailMessage(
             id=row["id"],
             account_id=row["account_id"],
@@ -272,9 +312,9 @@ class PostgresMailRepository(IMailRepository):
             from_address=row["from_address"],
             to_addresses=json.loads(row["to_addresses"]) if isinstance(row["to_addresses"], str) else row["to_addresses"],
             cc_addresses=json.loads(row["cc_addresses"]) if isinstance(row["cc_addresses"], str) else row["cc_addresses"],
-            subject=row["subject"],
-            body_text=row["body_text"],
-            body_html=row["body_html"],
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
             received_at=row["received_at"],
             labels=json.loads(row["labels"]) if isinstance(row["labels"], str) else row["labels"],
             has_attachment=row["has_attachment"],

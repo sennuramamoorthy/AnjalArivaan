@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     # ── Redis ─────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379"
 
+    # ── Celery (daily briefing scheduler + worker queues) ─────────
+    celery_broker_url: str = "redis://redis:6379/1"
+    celery_result_backend: str = "redis://redis:6379/2"
+
+    # ── Push notifications (FCM HTTP v1) ──────────────────────────
+    fcm_project_id: str = ""
+
     # ── JWT / Auth ────────────────────────────────────────────────
     jwt_private_key_path: str = "./keys/jwt_private.pem"
     jwt_public_key_path: str = "./keys/jwt_public.pem"

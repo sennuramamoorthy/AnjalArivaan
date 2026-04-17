@@ -16,6 +16,11 @@ from src.modules.ai.services.guardrails import InputGuardrails, OutputGuardrails
 from src.infra.logger import Logger
 
 
+# Design pattern: **Strategy** — per-task-type temperature/max_tokens selection
+# via the _TEMPERATURES / _MAX_TOKENS tables. **Template Method** — summarize /
+# draft_reply / daily_briefing share the _execute skeleton (render → guardrails
+# → LLM → log) and vary only the task-specific inputs.
+
 # Temperature settings per task
 _TEMPERATURES: dict[AITask, float] = {
     AITask.SUMMARIZE_THREAD: 0.2,

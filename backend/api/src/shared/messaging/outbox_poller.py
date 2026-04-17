@@ -6,6 +6,10 @@ Replaces Kafka consumer groups. Uses 1-second polling interval by default.
 All DB operations use run_in_executor to avoid blocking the event loop.
 
 Cleanup: deletes processed events older than 7 days every ~1000 cycles.
+
+Design pattern: **Transactional Outbox** — producers write events in the same
+DB transaction as business state; this poller atomically claims and dispatches
+them, guaranteeing at-least-once delivery without a broker.
 """
 
 import asyncio

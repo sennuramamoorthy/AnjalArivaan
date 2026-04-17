@@ -2,20 +2,39 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Mail, CalendarDays, Settings } from 'lucide-react';
+import { LayoutDashboard, Mail, CalendarDays, Settings, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth-store';
 
 const URGENT_MAIL_COUNT = 2;
 
-const navItems = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  badge?: number;
+};
+
+const baseNavItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Mail', href: '/mail', icon: Mail, badge: URGENT_MAIL_COUNT },
   { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 
+const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'DEPT_ADMIN']);
+
 export function BottomNav() {
   const pathname = usePathname();
+  const user = useAuthStore((s) => s.user);
+  const navItems: NavItem[] =
+    user && ADMIN_ROLES.has(user.role)
+      ? [
+          ...baseNavItems.slice(0, 3),
+          { label: 'Admin', href: '/admin', icon: ShieldCheck },
+          baseNavItems[3],
+        ]
+      : baseNavItems;
 
   return (
     <nav

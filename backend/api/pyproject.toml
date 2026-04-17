@@ -35,6 +35,11 @@ dependencies = [
     "qdrant-client>=1.9.1",
     # Templates (ai-orchestrator)
     "jinja2>=3.1.4",
+    # Secrets (account-link token broker)
+    "hvac>=2.3.0",
+    # Background jobs (daily briefing scheduler)
+    "celery[redis]>=5.3.0",
+    "celery-redbeat>=2.2.0",
 ]
 
 [project.optional-dependencies]

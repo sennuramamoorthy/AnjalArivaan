@@ -100,7 +100,7 @@ export function AccountSwitcher() {
           <DropdownMenu.Separator className="my-1 h-px bg-gray-200 dark:bg-gray-700" />
 
           <DropdownMenu.Item
-            onSelect={(e) => {
+            onSelect={(e: Event) => {
               e.preventDefault();
               initiateLink();
             }}

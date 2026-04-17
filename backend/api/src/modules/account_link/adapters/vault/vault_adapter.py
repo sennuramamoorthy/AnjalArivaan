@@ -1,61 +1,95 @@
-"""HashiCorpVaultAccountLinkAdapter — stores/revokes Google OAuth refresh tokens in Vault KV v2."""
+"""VaultAdapter — HashiCorp Vault KV v2 backed store for Google OAuth refresh tokens.
 
-import logging
+Satisfies D1 ("refresh tokens never in Postgres or env vars — always in Vault
+via the token broker"). Each linked account gets its own KV v2 secret at
+``secret/data/linked_accounts/{accountId}/refresh_token``.
 
-import httpx
+All outbound Vault calls are wrapped with ``logger.timed(...)`` so every entry
+carries ``duration_ms`` per the CLAUDE.md logging contract.
+"""
 
-from src.modules.account_link.adapters.vault.interface import IAccountLinkVaultAdapter
+from typing import Any
 
-logger = logging.getLogger(__name__)
+import hvac
+
+from src.modules.account_link.adapters.vault.interface import (
+    IAccountLinkVaultAdapter,
+)
 
 
-class HashiCorpVaultAccountLinkAdapter(IAccountLinkVaultAdapter):
+class VaultAdapter(IAccountLinkVaultAdapter):
+    """Real Vault adapter using the ``hvac`` KV v2 API.
+
+    The hvac client is synchronous; we expose an async-looking interface to
+    match :class:`IAccountLinkVaultAdapter` and stay wire-compatible with a
+    future async vault client without touching callers.
     """
-    Uses Vault KV v2 secret engine to store Google OAuth refresh tokens.
 
-    Path convention: secret/data/oauth/<account_id>
-    """
+    def __init__(
+        self,
+        vault_addr: str,
+        vault_token: str,
+        logger: Any,
+        mount_point: str = "secret",
+        path_prefix: str = "linked_accounts",
+    ) -> None:
+        self._logger = logger
+        self._mount_point = mount_point
+        self._path_prefix = path_prefix
+        self._client = hvac.Client(url=vault_addr, token=vault_token)
 
-    def __init__(self, vault_addr: str, vault_token: str) -> None:
-        self._vault_addr = vault_addr.rstrip("/")
-        self._vault_token = vault_token
+    # ---- path helpers -------------------------------------------------
 
-    def _headers(self) -> dict[str, str]:
-        return {"X-Vault-Token": self._vault_token}
+    def _secret_path(self, account_id: str) -> str:
+        return f"{self._path_prefix}/{account_id}/refresh_token"
 
-    async def store_refresh_token(self, account_id: str, refresh_token: str) -> str:
-        vault_path = f"secret/data/oauth/{account_id}"
-        url = f"{self._vault_addr}/v1/{vault_path}"
+    def _vault_ref(self, account_id: str) -> str:
+        return f"vault:{self._mount_point}/data/{self._secret_path(account_id)}"
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                url,
-                headers=self._headers(),
-                json={"data": {"refresh_token": refresh_token}},
-                timeout=10.0,
+    def _account_id_from_ref(self, vault_ref: str) -> str:
+        # ref shape: vault:{mount}/data/{prefix}/{accountId}/refresh_token
+        prefix = f"vault:{self._mount_point}/data/{self._path_prefix}/"
+        if not vault_ref.startswith(prefix):
+            raise ValueError(f"unrecognised vault_ref: {vault_ref}")
+        tail = vault_ref[len(prefix):]
+        # tail = "{accountId}/refresh_token"
+        return tail.split("/", 1)[0]
+
+    # ---- interface ----------------------------------------------------
+
+    async def store_refresh_token(
+        self, account_id: str, refresh_token: str
+    ) -> str:
+        path = self._secret_path(account_id)
+        with self._logger.timed("vault.store_token", account_id=account_id):
+            self._client.secrets.kv.v2.create_or_update_secret(
+                path=path,
+                secret={"refresh_token": refresh_token},
+                mount_point=self._mount_point,
             )
-            if resp.status_code not in (200, 204):
-                logger.error(
-                    "Vault store failed for %s: %d %s",
-                    account_id, resp.status_code, resp.text,
-                )
-                resp.raise_for_status()
+        return self._vault_ref(account_id)
 
-        vault_ref = f"vault:{vault_path}"
-        logger.info("Stored refresh token in Vault: %s", vault_ref)
-        return vault_ref
+    async def get_refresh_token(self, account_id: str) -> str | None:
+        path = self._secret_path(account_id)
+        with self._logger.timed("vault.get_token", account_id=account_id):
+            try:
+                resp = self._client.secrets.kv.v2.read_secret_version(
+                    path=path,
+                    mount_point=self._mount_point,
+                    raise_on_deleted_version=True,
+                )
+            except hvac.exceptions.InvalidPath:
+                return None
+        return resp["data"]["data"].get("refresh_token")
 
     async def revoke_refresh_token(self, vault_ref: str) -> None:
-        # vault_ref = "vault:secret/data/oauth/<account_id>"
-        vault_path = vault_ref.replace("vault:", "", 1)
-        # KV v2 metadata delete path
-        metadata_path = vault_path.replace("secret/data/", "secret/metadata/", 1)
-        url = f"{self._vault_addr}/v1/{metadata_path}"
+        account_id = self._account_id_from_ref(vault_ref)
+        await self.delete_refresh_token(account_id)
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.delete(url, headers=self._headers(), timeout=10.0)
-            if resp.status_code not in (200, 204):
-                logger.warning(
-                    "Vault revoke returned %d for %s: %s",
-                    resp.status_code, vault_ref, resp.text,
-                )
+    async def delete_refresh_token(self, account_id: str) -> None:
+        path = self._secret_path(account_id)
+        with self._logger.timed("vault.delete_token", account_id=account_id):
+            self._client.secrets.kv.v2.delete_metadata_and_all_versions(
+                path=path,
+                mount_point=self._mount_point,
+            )

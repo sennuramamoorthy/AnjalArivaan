@@ -2,6 +2,9 @@
 GmailAdapter — real implementation using google-api-python-client.
 
 All calls are wrapped with duration_ms logging via the anjal logger.
+
+Design pattern: **Adapter** (concrete) — wraps the Google Gmail API behind
+the IGmailAdapter port so domain code never imports google-api-python-client.
 """
 
 import base64

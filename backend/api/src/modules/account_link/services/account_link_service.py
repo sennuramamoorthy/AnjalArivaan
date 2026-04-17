@@ -1,4 +1,8 @@
-"""AccountLinkService — orchestrates the Google OAuth account linking flow."""
+"""AccountLinkService — orchestrates the Google OAuth account linking flow.
+
+Design pattern: **Facade** — presents a single high-level API over the Google
+OAuth adapter, Vault token broker, and linked-account repository.
+"""
 
 import json
 import logging
@@ -112,9 +116,19 @@ class AccountLinkService:
         )
         return saved
 
-    async def get_linked_accounts(self, user_id: str) -> list[LinkedAccount]:
-        """Return active (non-revoked) linked accounts for a user."""
+    async def get_linked_accounts(
+        self, user_id: str, *, include_revoked: bool = True
+    ) -> list[LinkedAccount]:
+        """Return linked accounts for a user.
+
+        By default revoked accounts are **included** so the admin UI can
+        show "disconnected" state and offer a reconnect action. Set
+        ``include_revoked=False`` for flows that must only see accounts
+        the user can currently act on (sync, send mail, etc.).
+        """
         accounts = await self._repo.find_by_user(user_id)
+        if include_revoked:
+            return list(accounts)
         return [a for a in accounts if a.status != "REVOKED"]
 
     async def revoke_account(self, account_id: str, user_id: str) -> None:

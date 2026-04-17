@@ -201,7 +201,7 @@ function EventDrawer({ event, onClose }: { event: AuditEvent; onClose: () => voi
           <Row k="Actor" v={event.actor} />
           <Row k="Action" v={<code>{event.action}</code>} />
           <Row k="Target" v={event.target ?? '—'} />
-          <Row k="IP" v={event.ip ?? '—'} />
+          <Row k="IP" v={event.ipAddress ?? '—'} />
           <Row k="User agent" v={event.userAgent ?? '—'} />
         </dl>
 

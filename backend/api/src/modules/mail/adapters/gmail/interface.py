@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+# Design pattern: **Adapter** (ports & adapters / hexagonal) — IGmailAdapter is
+# the port; GmailAdapter and MockGmailAdapter are interchangeable implementations.
 class IGmailAdapter(ABC):
     @abstractmethod
     async def list_messages(

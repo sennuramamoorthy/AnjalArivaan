@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { UserCheck, UserX, ShieldCheck, Mail, Loader2, UserPlus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
@@ -134,7 +135,10 @@ export default function AdminUsersPage() {
                 return (
                   <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
+                      <Link
+                        href={`/admin/users/${u.id}`}
+                        className="flex items-center gap-2.5 hover:underline"
+                      >
                         <Avatar name={u.name || u.email} size="sm" />
                         <div className="min-w-0">
                           <p className="truncate font-medium text-gray-900 dark:text-gray-100">
@@ -145,7 +149,7 @@ export default function AdminUsersPage() {
                             {u.email}
                           </p>
                         </div>
-                      </div>
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant="default" className="text-[10px]">
