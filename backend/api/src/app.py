@@ -521,6 +521,16 @@ def _register_routes(app: FastAPI) -> None:
         # Defensive — never let task-module import errors break app boot.
         pass
 
+    # Calendar (list-only; event creation deferred to Phase 1b)
+    try:
+        from src.modules.meeting.routes.calendar_routes import (
+            router as calendar_router,
+        )
+
+        app.include_router(calendar_router, prefix="/api/v1")
+    except Exception:
+        pass
+
 
 def _read_key(path: str, logger) -> str:
     """Read a PEM key file, return placeholder if not found."""

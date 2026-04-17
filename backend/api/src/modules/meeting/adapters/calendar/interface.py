@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 
@@ -29,7 +29,7 @@ class CalendarEvent:
 
 
 class ICalendarService(ABC):
-    """Port for listing calendar events for a given linked account + day."""
+    """Port for listing calendar events for a given linked account."""
 
     @abstractmethod
     async def list_events_for_day(
@@ -45,3 +45,26 @@ class ICalendarService(ABC):
         both are linked to the same ``user_id``.
         """
         ...
+
+    async def list_events_for_range(
+        self,
+        account_id: str,
+        user_id: str,
+        start: date,
+        end: date,
+    ) -> list[CalendarEvent]:
+        """Return events for ``account_id`` between ``start`` and ``end``
+        (inclusive).
+
+        Default implementation iterates per-day using ``list_events_for_day``
+        — adapters that can satisfy the range in a single upstream call
+        (e.g. ``GoogleCalendarAdapter``) should override this.
+        """
+        events: list[CalendarEvent] = []
+        current = start
+        while current <= end:
+            events.extend(
+                await self.list_events_for_day(account_id, user_id, current)
+            )
+            current = current + timedelta(days=1)
+        return events

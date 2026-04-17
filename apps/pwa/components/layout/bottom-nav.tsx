@@ -10,7 +10,7 @@ const URGENT_MAIL_COUNT = 2;
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Mail', href: '/mail', icon: Mail, badge: URGENT_MAIL_COUNT },
-  { label: 'Meetings', href: '/meetings', icon: CalendarDays },
+  { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 

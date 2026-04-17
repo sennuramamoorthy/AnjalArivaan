@@ -71,9 +71,9 @@ const MAILBOX_ITEMS: NavItem[] = [
 ];
 
 const AI_ITEMS: NavItem[] = [
-  { label: 'Tasks', href: '/tasks', icon: CheckSquare, count: 12, comingSoon: true },
+  { label: 'Tasks', href: '/tasks', icon: CheckSquare },
   { label: 'Travel', href: '/travel', icon: Plane, count: 2, comingSoon: true },
-  { label: 'Calendar', href: '/calendar', icon: CalendarDays, comingSoon: true },
+  { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'AI Chat', href: '/chat', icon: MessageSquare, comingSoon: true },
 ];
 
