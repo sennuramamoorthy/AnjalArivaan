@@ -60,7 +60,30 @@ class EncryptedField:
     def decrypt(self, ciphertext: Optional[str]) -> Optional[str]:
         if ciphertext is None:
             return None
-        return decrypt(ciphertext, self._key_hex)
+        # Legacy rows written before field-level encryption rolled out
+        # are stored as plaintext. The wire format is iv:tag:ciphertext
+        # (three hex segments) — anything that doesn't match that shape
+        # is treated as legacy plaintext and returned as-is. We don't
+        # re-encrypt on read; a background migration handles backfill.
+        parts = ciphertext.split(":")
+        # Encrypting an empty string produces iv:tag: (empty ciphertext
+        # segment) — allow that. Require the iv + tag segments to be
+        # non-empty hex so we don't misclassify legacy plaintext that
+        # happens to contain colons.
+        if (
+            len(parts) != 3
+            or not _is_hex(parts[0])
+            or not _is_hex(parts[1])
+            or (parts[2] != "" and not _is_hex(parts[2]))
+        ):
+            return ciphertext
+        try:
+            return decrypt(ciphertext, self._key_hex)
+        except Exception:
+            # Corrupt or wrong-key ciphertext — surface the raw value
+            # rather than 500-ing the entire list endpoint. This keeps
+            # the UI usable during key rotation / rollout hiccups.
+            return ciphertext
 
     # ── Dict helpers ────────────────────────────────────────────
     def encrypt_dict(
@@ -83,3 +106,13 @@ class EncryptedField:
             if name in data:
                 data[name] = self.decrypt(data[name])
         return data
+
+
+def _is_hex(s: str) -> bool:
+    if not s:
+        return False
+    try:
+        bytes.fromhex(s)
+        return True
+    except ValueError:
+        return False
