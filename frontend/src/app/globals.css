@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 0.75rem;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-50 text-ink-900 antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+*:focus-visible {
+  @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-ink-50;
+}
+
+/* Utility classes used across the app */
+.card {
+  @apply bg-white border border-ink-200 rounded-xl shadow-sm;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-primary {
+  @apply btn bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700;
+}
+
+.btn-secondary {
+  @apply btn bg-white border border-ink-300 text-ink-900 hover:bg-ink-100;
+}
+
+.btn-ghost {
+  @apply btn text-ink-700 hover:bg-ink-100;
+}
+
+.input {
+  @apply w-full rounded-lg border border-ink-300 bg-white px-3 py-2 text-sm placeholder:text-ink-400 focus:border-brand-500 focus:ring-1 focus:ring-brand-500;
+}
+
+.label {
+  @apply block text-sm font-medium text-ink-800 mb-1;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+}
+
+.badge-urgent {
+  @apply badge bg-brand-100 text-brand-700;
+}
+
+.badge-muted {
+  @apply badge bg-ink-100 text-ink-700;
+}

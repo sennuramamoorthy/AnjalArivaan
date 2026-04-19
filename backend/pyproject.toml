@@ -1,0 +1,29 @@
+[project]
+name = "anjalarivaan-backend"
+version = "1.0.0"
+description = "Takshashila University - AnjalArivaan Smart Personal Assistant API"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers --tb=short"
+markers = [
+    "unit: fast pure-Python unit tests",
+    "integration: tests that touch the DB / external services",
+    "slow: tests that take >1s",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

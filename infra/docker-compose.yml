@@ -1,0 +1,196 @@
+# AnjalArivaan — Dev Docker Compose
+#
+# Brings up the full local stack: Postgres, Redis, MinIO, Qdrant, the FastAPI
+# backend, and the Next.js frontend.
+#
+# Usage:
+#   docker compose -f infra/docker-compose.yml up -d postgres redis minio qdrant
+#   docker compose -f infra/docker-compose.yml up backend frontend
+#
+# All services are bound only to localhost for safety. Volumes persist under
+# ./.data/ which is gitignored.
+
+version: "3.9"
+
+name: anjalarivaan
+
+networks:
+  anjal-net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  minio_data:
+  qdrant_data:
+  redis_data:
+
+services:
+  # ----------------------------------------------------------------------------
+  # Postgres — transactional system of record (PRD §7.3)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: anjal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: anjal
+      POSTGRES_PASSWORD: anjal
+      POSTGRES_DB: anjalarivaan
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anjal -d anjalarivaan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [anjal-net]
+
+  # ----------------------------------------------------------------------------
+  # Redis — cache, Celery broker, session store (PRD §7.3)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: anjal-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [anjal-net]
+
+  # ----------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage for attachments + WORM audit (PRD §7.3, §8.4)
+  # ----------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    container_name: anjal-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [anjal-net]
+
+  # One-shot bucket bootstrap (creates attachments + audit-worm buckets)
+  minio-setup:
+    image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+    container_name: anjal-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb -p local/attachments || true &&
+      mc mb -p local/audit-worm || true &&
+      mc version enable local/audit-worm &&
+      mc retention set --default compliance 7y local/audit-worm || true &&
+      echo 'MinIO buckets ready.'
+      "
+    networks: [anjal-net]
+
+  # ----------------------------------------------------------------------------
+  # Qdrant — per-account-namespaced vector store (PRD §7.3, §8.2)
+  # ----------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    container_name: anjal-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # REST
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks: [anjal-net]
+
+  # ----------------------------------------------------------------------------
+  # Mailhog — catches outbound email in dev so we never hit real SMTP
+  # ----------------------------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: anjal-mailhog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # Web UI
+    networks: [anjal-net]
+
+  # ----------------------------------------------------------------------------
+  # Backend (FastAPI) — the app
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: anjal-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      APP_ENV: dev
+      DATABASE_URL: postgresql+psycopg2://anjal:anjal@postgres:5432/anjalarivaan
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      QDRANT_URL: http://qdrant:6333
+      LLM_PROVIDER: stub
+      WHATSAPP_BSP: stub
+      VAULT_PROVIDER: stub
+      SECRET_KEY: ${SECRET_KEY:-dev-change-me-in-prod-very-long-random-string}
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../backend:/app
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    networks: [anjal-net]
+
+  # ----------------------------------------------------------------------------
+  # Frontend (Next.js) — PWA client
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: anjal-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000/api/v1
+      NODE_ENV: development
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+    networks: [anjal-net]
