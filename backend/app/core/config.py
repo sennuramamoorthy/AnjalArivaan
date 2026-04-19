@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # MFA — global kill-switch. When False, MFA setup/verify are disabled and
+    # login does NOT require a TOTP code even for users with mfa_enabled=True.
+    MFA_ENABLED: bool = True
     MFA_ISSUER: str = "AnjalArivaan-Takshashila"
 
     # --- Database ---

@@ -1,6 +1,7 @@
 """Auth use cases: signup, login, MFA setup, token refresh (PRD §3.1)."""
 from __future__ import annotations
 
+from app.core.config import settings
 from app.core.exceptions import AuthenticationError, ConflictError
 from app.core.security import (
     create_access_token,
@@ -46,7 +47,9 @@ class AuthService:
         user = self.users.get_by_email(payload.email)
         if not user or not verify_password(payload.password, user.password_hash):
             raise AuthenticationError("Invalid email or password")
-        if user.mfa_enabled:
+        # Global MFA kill-switch (settings.MFA_ENABLED): when False, skip the
+        # per-user MFA check entirely even if the user previously enrolled.
+        if settings.MFA_ENABLED and user.mfa_enabled:
             if not payload.totp or not user.mfa_secret:
                 raise AuthenticationError("MFA code required", code="mfa_required")
             if not verify_totp(user.mfa_secret, payload.totp):
@@ -80,6 +83,10 @@ class AuthService:
         )
 
     def enable_mfa(self, user_id: int) -> MFASetupResponse:
+        if not settings.MFA_ENABLED:
+            raise AuthenticationError(
+                "MFA is disabled by administrator", code="mfa_disabled"
+            )
         user = self.users.get_or_404(user_id)
         secret = generate_totp_secret()
         user.mfa_secret = secret
@@ -91,6 +98,10 @@ class AuthService:
         )
 
     def verify_mfa(self, user_id: int, totp: str) -> bool:
+        if not settings.MFA_ENABLED:
+            raise AuthenticationError(
+                "MFA is disabled by administrator", code="mfa_disabled"
+            )
         user = self.users.get_or_404(user_id)
         if not user.mfa_secret:
             raise AuthenticationError("MFA not initialized")

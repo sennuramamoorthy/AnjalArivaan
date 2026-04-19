@@ -1,6 +1,7 @@
 """AuthService tests (TDD-ish)."""
 import pytest
 
+from app.core.config import settings
 from app.core.exceptions import AuthenticationError, ConflictError
 from app.domain.schemas.auth import LoginRequest, SignupRequest
 from app.repositories.user import AppUserRepository
@@ -42,8 +43,9 @@ def test_login_with_wrong_password_fails(svc):
         svc.login(LoginRequest(email="b@x.com", password="wrong-password"))
 
 
-def test_mfa_setup_and_verify(svc):
+def test_mfa_setup_and_verify(svc, monkeypatch):
     import pyotp
+    monkeypatch.setattr(settings, "MFA_ENABLED", True)
     user = svc.signup(SignupRequest(email="mfa@x.com", password="super-secret-pass-123"))
     setup = svc.enable_mfa(user.id)
     code = pyotp.TOTP(setup.secret).now()
@@ -59,3 +61,32 @@ def test_mfa_setup_and_verify(svc):
         )
     )
     assert tokens.access_token
+
+
+def test_mfa_globally_disabled_bypasses_totp_on_login(svc, monkeypatch):
+    """When MFA_ENABLED=false, login must succeed without TOTP even for
+    users that have previously enrolled in MFA."""
+    import pyotp
+    # First enroll a user with MFA_ENABLED=true so user.mfa_enabled flips True.
+    monkeypatch.setattr(settings, "MFA_ENABLED", True)
+    user = svc.signup(SignupRequest(email="kill@x.com", password="super-secret-pass-123"))
+    setup = svc.enable_mfa(user.id)
+    svc.verify_mfa(user.id, pyotp.TOTP(setup.secret).now())
+
+    # Now flip the global kill-switch off.
+    monkeypatch.setattr(settings, "MFA_ENABLED", False)
+    tokens = svc.login(
+        LoginRequest(email="kill@x.com", password="super-secret-pass-123")
+    )
+    assert tokens.access_token
+
+
+def test_mfa_setup_rejected_when_globally_disabled(svc, monkeypatch):
+    monkeypatch.setattr(settings, "MFA_ENABLED", False)
+    user = svc.signup(SignupRequest(email="off@x.com", password="super-secret-pass-123"))
+    with pytest.raises(AuthenticationError) as exc:
+        svc.enable_mfa(user.id)
+    assert exc.value.code == "mfa_disabled"
+    with pytest.raises(AuthenticationError) as exc:
+        svc.verify_mfa(user.id, "000000")
+    assert exc.value.code == "mfa_disabled"
